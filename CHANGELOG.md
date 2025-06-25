@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2](https://github.com/Loop3D/loop-cgal/compare/v0.1.1...v0.1.2) (2025-06-25)
+
+
+### Bug Fixes
+
+* adding remove isolated vertices ([7463cc7](https://github.com/Loop3D/loop-cgal/commit/7463cc7978a43755e28324f0a2d0d583a75152e4))
+* correct typo in error message for degenerate face removal ([a41c66d](https://github.com/Loop3D/loop-cgal/commit/a41c66d33e056c4945839fc81bcac5b255673dec))
+* correct typo in error message for degenerate face removal ([054abdc](https://github.com/Loop3D/loop-cgal/commit/054abdc3d40ed83f6dc127ec04cde64e3c90c527))
+* don't break if mesh is invalid as refine mesh will fix this ([a27d5fd](https://github.com/Loop3D/loop-cgal/commit/a27d5fd0c05de667ab7daec7abd24e1488f8da2c))
+* return variable for polydata creation in clip function ([271f95d](https://github.com/Loop3D/loop-cgal/commit/271f95df0c39c4e5047e3b9a49f090e139eaed3d))
+
 ## [0.1.1](https://github.com/Loop3D/loop-cgal/compare/v0.1.0...v0.1.1) (2025-06-18)
 
 
