@@ -31,7 +31,9 @@ add_library(loop_cgal MODULE
     src/clip.cpp
     src/mesh.cpp
     src/meshutils.cpp
-    
+    src/grid.cpp
+    src/marchingcube.cpp
+    src/topologymanager.cpp
 )
 target_link_libraries(loop_cgal PRIVATE pybind11::module CGAL::CGAL)
 target_include_directories(loop_cgal PRIVATE ${CMAKE_SOURCE_DIR}/src)
