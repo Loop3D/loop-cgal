@@ -3,6 +3,7 @@
 
 #include "clip.h" // Include the API implementation
 #include "mesh.h"
+#include "grid.h"
 #include "numpymesh.h"
 
 namespace py = pybind11;
@@ -64,6 +65,21 @@ PYBIND11_MODULE(loop_cgal, m)
                py::arg("verbose") = false)
             .def("reverse_face_orientation", &TriMesh::reverseFaceOrientation,
                  "Reverse the face orientation of the mesh.");
+     py::class_<Grid>(m, "Grid")
+          .def(py::init<double, double, double, double, double, double, int, int, int>(),
+               py::arg("origin_x"), py::arg("origin_y"), py::arg("origin_z"),
+               py::arg("step_x"), py::arg("step_y"), py::arg("step_z"),
+               py::arg("nsteps_x"), py::arg("nsteps_y"), py::arg("nsteps_z"))
+          .def("add_scalar_field", &Grid::addScalarField, py::arg("name"),
+               py::arg("values"))
+          .def("extract_surface_for_cell", &Grid::extractSurfaceForCell,
+               py::arg("i"), py::arg("j"), py::arg("k"), py::arg("name"),
+               py::arg("isovalue"))
+          .def("_extract_isosurface", &Grid::_extract_isosurface,
+               py::arg("name"), py::arg("isovalue"),
+               "Extract an isosurface from the grid based on a scalar field and isovalue.");
+               
+     
 
 
 } // End of PYBIND11_MODULE

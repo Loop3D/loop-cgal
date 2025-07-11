@@ -20,7 +20,7 @@ class TriMesh
 public:
     // Constructor
     TriMesh(const std::vector<std::vector<int>> &triangles,
-            const std::vector<std::pair<double, double>> &vertices);
+            const std::vector<std::vector<double>> &vertices);
     TriMesh(const pybind11::array_t<double> &vertices,
             const pybind11::array_t<int> &triangles);
     // Method to cut the mesh with another surface object
@@ -38,7 +38,7 @@ public:
     void reverseFaceOrientation();
     NumpyMesh save(double area_threshold,
                  double duplicate_vertex_threshold, bool verbose = false);
-
+    
 private: std::set<TriangleMesh::Edge_index> _fixedEdges;
     TriangleMesh _mesh; // The underlying CGAL surface mesh
     CGAL::Boolean_property_map<std::set<TriangleMesh::Edge_index>> _edge_is_constrained_map;

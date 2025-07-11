@@ -16,7 +16,7 @@
 namespace PMP = CGAL::Polygon_mesh_processing;
 
 TriMesh::TriMesh(const std::vector<std::vector<int>> &triangles,
-                 const std::vector<std::pair<double, double>> &vertices
+                 const std::vector<std::vector<double>> &vertices
                  )
 {
     std::vector<TriangleMesh::Vertex_index> vertex_indices;
@@ -32,7 +32,7 @@ TriMesh::TriMesh(const std::vector<std::vector<int>> &triangles,
     for (ssize_t i = 0; i < vertices.size(); ++i)
     {
         vertex_indices.push_back(_mesh.add_vertex(
-            Point(vertices[i].first, vertices[i].second, 0.0)));
+            Point(vertices[i][0], vertices[i][1], vertices[i][2])));
     }
     for (ssize_t i = 0; i < triangles.size(); ++i)
     {

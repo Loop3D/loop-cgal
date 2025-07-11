@@ -2,6 +2,8 @@
 #define GRID_H
 #include "mesh.h"
 #include "marchingcubes.h"
+#include "numpymesh.h"
+
 class Grid
 {
 public:
@@ -9,6 +11,7 @@ public:
     Grid(double origin_x, double origin_y, double origin_z, double step_x, double step_y, double step_z, int nsteps_x, int nsteps_y, int nsteps_z);
     void addScalarField(const std::string &name, const std::vector<double> &values);
     std::vector<Triangle> extractSurfaceForCell(int i, int j, int k, std::string name, double isovalue) const;
+    NumpyMesh _extract_isosurface(std::string name, double isovalue) const;
 private:
     double _origin_x, _origin_y, _origin_z; // Origin of the grid
     double _step_x, _step_y, _step_z;       // Step sizes in each dimension

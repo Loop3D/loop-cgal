@@ -1,5 +1,6 @@
 from .loop_cgal import clip_surface, NumpyMesh, NumpyPlane, clip_plane, corefine_mesh
 from .loop_cgal import TriMesh as _TriMesh
+from .loop_cgal import Grid as _Grid
 import pyvista as pv
 import numpy as np
 from typing import Tuple
@@ -10,11 +11,34 @@ class TriMesh(_TriMesh):
     
     Inherits from the base TriMesh class and provides additional functionality.
     """
-    def __init__(self, surface: pv.PolyData):
-        verts = np.array(surface.points).copy()
-        triangles = surface.faces.reshape(-1, 4)[:, 1:].copy()
-        super().__init__(verts, triangles)
+    def __init__(self, surface: pv.PolyData = None, vertices: np.ndarray = None, triangles: np.ndarray = None):
+        if surface is not None:
+            if not isinstance(surface, pv.PolyData):
+                raise TypeError("surface must be a pyvista.PolyData object")
+            
+            vertices = np.array(surface.points).copy()
+            triangles = surface.faces.reshape(-1, 4)[:, 1:].copy()
+            
+        super().__init__(vertices, triangles)
+    @classmethod
+    def from_cpp(cls, mesh):
+        """
+        Create a TriMesh instance from a C++ mesh object.
         
+        Parameters
+        ----------
+        mesh : C++ mesh object
+            The mesh object to convert.
+        
+        Returns
+        -------
+        TriMesh
+            The converted TriMesh object.
+        """
+        
+        numpymesh = mesh.save(1e-10,1e-10,False)
+
+        return cls(None,numpymesh.vertices, numpymesh.triangles)
     def to_pyvista(self, area_threshold: float = 1e-6,  # this is the area threshold for the faces, if the area is smaller than this it will be removed
             duplicate_vertex_threshold: float = 1e-4,  # this is the threshold for duplicate vertices
             verbose: bool = False) -> pv.PolyData:
@@ -30,7 +54,38 @@ class TriMesh(_TriMesh):
         vertices = np.array(np_mesh.vertices).copy()
         triangles = np.array(np_mesh.triangles).copy()
         return pv.PolyData.from_regular_faces(vertices, triangles)
-
+class Grid(_Grid):
+    """
+    A class for creating and manipulating a grid of points in 3D space.
+    
+    Inherits from the base Grid class and provides additional functionality.
+    """
+    def __init__(self, origin_x: float, origin_y: float, origin_z: float,
+                 step_x: float, step_y: float, step_z: float,
+                 nsteps_x: int, nsteps_y: int, nsteps_z: int):
+        super().__init__(origin_x, origin_y, origin_z, step_x, step_y, step_z,
+                         nsteps_x, nsteps_y, nsteps_z)
+    def extract_isosurface(self, name: str, isovalue: float) -> TriMesh:
+        """
+        Extract an isosurface from the grid based on a scalar field.
+        
+        Parameters
+        ----------
+        name : str
+            The name of the scalar field to use for isosurface extraction.
+        isovalue : float
+            The isovalue for the isosurface extraction.
+        
+        Returns
+        -------
+        TriMesh
+            The extracted isosurface as a TriMesh object.
+        """
+        np_mesh = self._extract_isosurface(name, isovalue)
+        vertices = np.array(np_mesh.vertices).copy()
+        triangles = np.array(np_mesh.triangles).copy()
+        return pv.PolyData.from_regular_faces(vertices, triangles)
+        
 def clip_pyvista_polydata_with_plane(
     surface: pv.PolyData,
     plane_origin: np.ndarray,
