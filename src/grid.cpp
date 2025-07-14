@@ -16,13 +16,8 @@ void Grid::addScalarField(const std::string &name, const std::vector<double> &va
     }
     _scalar_fields[name] = values;
 }
-
-std::vector<Triangle> Grid::extractSurfaceForCell(int i, int j, int k, std::string name, double isovalue) const {
-    if (i < 0 || i >= _nsteps_x || j < 0 || j >= _nsteps_y || k < 0 || k >= _nsteps_z) {
-        throw std::out_of_range("Cell indices are out of bounds.");
-    }
-
-    // Extract the scalar field values for the specified cell
+std::array<double, 8> Grid::get_cell_values(int i, int j, int k, std::string name) const{
+// Extract the scalar field values for the specified cell
     std::array<double,8> cell_values;
 
     std::array<int,8> xcorner = {0, 1, 0, 1, 0, 1, 0, 1};
@@ -37,6 +32,14 @@ std::vector<Triangle> Grid::extractSurfaceForCell(int i, int j, int k, std::stri
         }
         cell_values[ci] = _scalar_fields.at(name)[(z * _nsteps_y + y) * _nsteps_x + x];
     }
+    return cell_values;
+}
+std::vector<Triangle> Grid::extractSurfaceForCell(int i, int j, int k, std::string name, double isovalue) const {
+    if (i < 0 || i >= _nsteps_x || j < 0 || j >= _nsteps_y || k < 0 || k >= _nsteps_z) {
+        throw std::out_of_range("Cell indices are out of bounds.");
+    }
+
+    std::array<double, 8> cell_values = get_cell_values(i,j,k,name); 
     
     std::vector<Triangle> triangle_soup = marchingCubes(cell_values,isovalue, _origin_x + i * _step_x, 
                                 _origin_y + j * _step_y, 
@@ -119,4 +122,51 @@ for (auto f : surface.faces())
     result.triangles = triangles_array;
     return result;
  
+}
+
+std::vector<bool> Grid::calculate_cell_mask(std::string scalar_name, bool greater, double value) const {
+    std::vector<bool> mask;
+    // for (int i =0; i<_nsteps_x; i++) {
+    //     for (int j=0; j<_nsteps_y; j++){
+    //         for (int k = 0; k<_nsteps_z; k++) {
+    //             std::array<double,8> cell_values = get_cell_values(i,j,k,scalar_name);
+    //             bool cell_mask = true;
+    //             for (int n =0; n<8; n++)
+    //             {
+                    
+    //                 if (greater)
+    //                     cell_mask &= cell_values[n] > value;
+    //                 else
+    //                     cell_mask &= cell_values[n] < value;
+                    
+    //             }
+    //             mask.push_back(cell_mask);
+
+
+    //         }
+    //     }
+
+    // }
+    return mask;
+
+}
+
+double Grid::step_vector_x() const{
+return _step_x;
+}
+double Grid::step_vector_y() const{
+return _step_y;
+}
+double Grid::step_vector_z() const{
+return _step_z;
+}
+int Grid::nsteps_x() const{
+    return _nsteps_x;
+
+}
+int Grid::nsteps_y() const{
+    return _nsteps_y;
+}
+int Grid::nsteps_z() const{
+    return _nsteps_z;
 }
