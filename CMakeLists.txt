@@ -28,7 +28,6 @@ find_package(pybind11 REQUIRED)
 # Add the Python module
 add_library(_loop_cgal MODULE
     loop_cgal/bindings.cpp
-    src/clip.cpp
     src/mesh.cpp
     src/meshutils.cpp
     src/globals.cpp

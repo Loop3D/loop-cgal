@@ -14,19 +14,44 @@ collect_border_edges(const TriangleMesh &tm) {
 double calculate_triangle_area(const std::array<double, 3> &v1,
                                const std::array<double, 3> &v2,
                                const std::array<double, 3> &v3) {
+  // Validate input vertices for finite values
+  for (int i = 0; i < 3; ++i) {
+    if (!std::isfinite(v1[i]) || !std::isfinite(v2[i]) || !std::isfinite(v3[i])) {
+      return 0.0; // Return zero area for invalid vertices
+    }
+  }
+  
   // Compute vectors
   std::array<double, 3> vec1 = {v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]};
   std::array<double, 3> vec2 = {v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]};
+
+  // Check for zero-length vectors (degenerate triangles)
+  double vec1_mag_sq = vec1[0] * vec1[0] + vec1[1] * vec1[1] + vec1[2] * vec1[2];
+  double vec2_mag_sq = vec2[0] * vec2[0] + vec2[1] * vec2[1] + vec2[2] * vec2[2];
+  
+  if (vec1_mag_sq < 1e-16 || vec2_mag_sq < 1e-16) {
+    return 0.0; // Degenerate triangle
+  }
 
   // Compute cross product
   std::array<double, 3> cross_product = {vec1[1] * vec2[2] - vec1[2] * vec2[1],
                                          vec1[2] * vec2[0] - vec1[0] * vec2[2],
                                          vec1[0] * vec2[1] - vec1[1] * vec2[0]};
 
-  // Compute magnitude of cross product
-  double magnitude = std::sqrt(cross_product[0] * cross_product[0] +
-                               cross_product[1] * cross_product[1] +
-                               cross_product[2] * cross_product[2]);
+  // Compute magnitude of cross product with safety check
+  double magnitude_squared = cross_product[0] * cross_product[0] +
+                           cross_product[1] * cross_product[1] +
+                           cross_product[2] * cross_product[2];
+  
+  if (magnitude_squared < 0.0 || !std::isfinite(magnitude_squared)) {
+    return 0.0; // Invalid magnitude
+  }
+  
+  double magnitude = std::sqrt(magnitude_squared);
+  
+  if (!std::isfinite(magnitude)) {
+    return 0.0; // Invalid magnitude after sqrt
+  }
 
   // Area is half the magnitude of the cross product
   return 0.5 * magnitude;
@@ -64,7 +89,32 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
   int next_idx = 0;
   for (VIndex v : tm.vertices()) {
     const auto &p = tm.point(v);
-    QKey key{llround(p.x() * inv), llround(p.y() * inv), llround(p.z() * inv)};
+    
+    // Validate vertex coordinates
+    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(p.z())) {
+      if (LoopCGAL::verbose)
+        std::cout << "Warning: Non-finite vertex coordinates, skipping vertex\n";
+      continue;
+    }
+    
+    // Compute quantized key with overflow protection
+    double x_scaled = p.x() * inv;
+    double y_scaled = p.y() * inv;
+    double z_scaled = p.z() * inv;
+    
+    if (!std::isfinite(x_scaled) || !std::isfinite(y_scaled) || !std::isfinite(z_scaled)) {
+      if (LoopCGAL::verbose)
+        std::cout << "Warning: Invalid scaled coordinates, skipping vertex\n";
+      continue;
+    }
+    
+    // Clamp to prevent overflow in llround
+    const double max_coord = 1e15;
+    x_scaled = std::max(-max_coord, std::min(max_coord, x_scaled));
+    y_scaled = std::max(-max_coord, std::min(max_coord, y_scaled));
+    z_scaled = std::max(-max_coord, std::min(max_coord, z_scaled));
+    
+    QKey key{llround(x_scaled), llround(y_scaled), llround(z_scaled)};
 
     auto it = qmap.find(key);
     if (it == qmap.end()) { // first occurrence → store
@@ -85,8 +135,49 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
   for (auto f : tm.faces()) {
     std::array<int, 3> tri;
     int k = 0;
-    for (auto he : CGAL::halfedges_around_face(tm.halfedge(f), tm))
-      tri[k++] = vertex_index_map[CGAL::target(he, tm)];
+    bool valid_face = true;
+    
+    for (auto he : CGAL::halfedges_around_face(tm.halfedge(f), tm)) {
+      if (k >= 3) {  // Safety check for face with more than 3 vertices
+        if (LoopCGAL::verbose)
+          std::cout << "Warning: Face has more than 3 vertices, skipping\n";
+        valid_face = false;
+        break;
+      }
+      
+      VIndex target_vertex = CGAL::target(he, tm);
+      auto it = vertex_index_map.find(target_vertex);
+      if (it == vertex_index_map.end()) {
+        if (LoopCGAL::verbose)
+          std::cout << "Warning: Vertex not found in index map, skipping face\n";
+        valid_face = false;
+        break;
+      }
+      
+      int vertex_idx = it->second;
+      if (vertex_idx < 0 || vertex_idx >= static_cast<int>(vertices.size())) {
+        if (LoopCGAL::verbose)
+          std::cout << "Warning: Invalid vertex index " << vertex_idx << ", skipping face\n";
+        valid_face = false;
+        break;
+      }
+      
+      tri[k++] = vertex_idx;
+    }
+    
+    if (!valid_face || k != 3) {
+      if (LoopCGAL::verbose && k != 3)
+        std::cout << "Warning: Face does not have exactly 3 vertices (" << k << "), skipping\n";
+      continue;
+    }
+    
+    // Check for degenerate triangles (duplicate vertices)
+    if (tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2]) {
+      if (LoopCGAL::verbose)
+        std::cout << "Warning: Degenerate triangle with duplicate vertices (" 
+                  << tri[0] << ", " << tri[1] << ", " << tri[2] << "), skipping\n";
+      continue;
+    }
 
     double area = calculate_triangle_area(vertices[tri[0]], vertices[tri[1]],
                                           vertices[tri[2]]);
@@ -101,6 +192,47 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
     std::cout << "Kept " << triangles.size() << " triangles.\n";
 
   // —‑‑‑‑‑ 3.  Convert to NumPy arrays -----------------------------------
+  // Safety check for empty data
+  if (vertices.empty()) {
+    if (LoopCGAL::verbose)
+      std::cout << "Warning: No vertices to export, creating empty mesh\n";
+    NumpyMesh result;
+    result.vertices = pybind11::array_t<double>(std::vector<int>{0, 3});
+    result.triangles = pybind11::array_t<int>(std::vector<int>{0, 3});
+    return result;
+  }
+  
+  if (triangles.empty()) {
+    if (LoopCGAL::verbose)
+      std::cout << "Warning: No triangles to export, creating vertex-only mesh\n";
+  }
+  
+  // Validate data integrity before creating arrays
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    for (int j = 0; j < 3; ++j) {
+      if (!std::isfinite(vertices[i][j])) {
+        if (LoopCGAL::verbose)
+          std::cout << "Warning: Non-finite vertex coordinate at vertex " << i << ", component " << j << "\n";
+        // Replace with zero to prevent crash
+        vertices[i][j] = 0.0;
+      }
+    }
+  }
+  
+  // Validate triangle indices
+  for (size_t i = 0; i < triangles.size(); ++i) {
+    for (int j = 0; j < 3; ++j) {
+      if (triangles[i][j] < 0 || triangles[i][j] >= static_cast<int>(vertices.size())) {
+        if (LoopCGAL::verbose)
+          std::cout << "Error: Invalid triangle index " << triangles[i][j] 
+                    << " at triangle " << i << ", removing triangle\n";
+        triangles.erase(triangles.begin() + i);
+        --i; // Adjust index after removal
+        break;
+      }
+    }
+  }
+
   pybind11::array_t<double> vertices_array(
       {static_cast<int>(vertices.size()), 3});
   auto vbuf = vertices_array.mutable_unchecked<2>();
