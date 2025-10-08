@@ -38,6 +38,16 @@ jobs:
       - if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'     
         run: | 
           brew install cgal
+      - name: Install vcpkg dependencies (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Env:VCPKG_ROOT = "${{ github.workspace }}\vcpkg"
+          git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
+          & $Env:VCPKG_ROOT\bootstrap-vcpkg.bat
+          & $Env:VCPKG_ROOT\vcpkg.exe install yasm-tool:x86-windows cgal:x64-windows
+          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $env:GITHUB_ENV
+      
       - name: Build wheels
         run: |
           cibuildwheel --output-dir dist
