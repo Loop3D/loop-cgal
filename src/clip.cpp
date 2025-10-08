@@ -1,6 +1,7 @@
 #include "clip.h"
 #include "meshutils.h"
 #include "numpymesh.h"
+#include "sizet.h"
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>

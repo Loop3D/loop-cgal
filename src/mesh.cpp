@@ -1,6 +1,7 @@
 #include "mesh.h"
 #include "meshutils.h"
 #include "globals.h"
+#include "sizet.h"
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>

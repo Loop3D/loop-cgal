@@ -1,6 +1,7 @@
 #include "meshutils.h"
 #include "mesh.h"
 #include "globals.h"
+#include "sizet.h"
 std::set<TriangleMesh::Edge_index>
 collect_border_edges(const TriangleMesh &tm) {
   std::set<TriangleMesh::Edge_index> border_edges;

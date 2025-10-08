@@ -30,7 +30,11 @@ dependencies = ['pyvista']
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
-
+[tool.scikit-build.cmake]
+args = [
+  "-DCMAKE_TOOLCHAIN_FILE=C:/Users/lachl/L3DF/repositories/vcpkg/scripts/buildsystems/vcpkg.cmake",
+"-DVCPKG_ROOT=$env{VCPKG_ROOT}"
+]
 
 
 [tool.cibuildwheel.pyodide]
@@ -83,3 +87,4 @@ before-all = "yum install python3-devel -y"
 manylinux-x86_64-image = "lachlangrose/manylinuxeigencgal"
 [tool.cibuildwheel.macos]
 archs = ["x86_64","arm64"] 
+
