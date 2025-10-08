@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.5](https://github.com/Loop3D/loop-cgal/compare/v0.1.4...v0.1.5) (2025-10-08)
+
+
+### Bug Fixes
+
+* add windows build options using vcpkg. ([86e29dd](https://github.com/Loop3D/loop-cgal/commit/86e29dd4a90f11b3c71213f15d52f223c4b76860))
+* adding global verbose flag ([c48394a](https://github.com/Loop3D/loop-cgal/commit/c48394a4b9e96030bb651617c48727569a53651a))
+* use global verbose flag instead of per function variable ([b291e03](https://github.com/Loop3D/loop-cgal/commit/b291e03051cceba71efc62c396e30c1b3ab56010))
+
 ## [0.1.4](https://github.com/Loop3D/loop-cgal/compare/v0.1.3...v0.1.4) (2025-07-17)
 
 
