@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 project(loop-cgal VERSION 1.0 LANGUAGES CXX)
+# --- Optional vcpkg integration ---
+if(DEFINED ENV{VCPKG_ROOT})
+    message(STATUS "Using VCPKG toolchain from $ENV{VCPKG_ROOT}")
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+else()
+    message(STATUS "VCPKG_ROOT not defined — using system packages.")
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
