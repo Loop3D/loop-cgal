@@ -3,12 +3,47 @@ from __future__ import annotations
 from typing import Tuple
 
 import numpy as np
+from scipy import sparse as sp
 import pyvista as pv
 
-from ._loop_cgal import NumpyMesh, NumpyPlane, clip_plane, clip_surface, corefine_mesh
 from ._loop_cgal import TriMesh as _TriMesh
-from ._loop_cgal import verbose
+from ._loop_cgal import verbose # noqa: F401
 from ._loop_cgal import set_verbose as set_verbose
+
+
+
+
+
+def validate_pyvista_polydata(surface: pv.PolyData, surface_name: str = "surface") -> None:
+    """Validate a PyVista PolyData object.
+    
+    Parameters
+    ----------
+    surface : pv.PolyData
+        The surface to validate
+    surface_name : str
+        Name of the surface for error messages
+        
+    Raises
+    ------
+    ValueError
+        If the surface is invalid
+    """
+    if not isinstance(surface, pv.PolyData):
+        raise ValueError(f"{surface_name} must be a pyvista.PolyData object")
+    
+    if surface.n_points == 0:
+        raise ValueError(f"{surface_name} has no points")
+    
+    if surface.n_cells == 0:
+        raise ValueError(f"{surface_name} has no cells")
+    
+    points = np.asarray(surface.points)
+    if not np.isfinite(points).all():
+        raise ValueError(f"{surface_name} points contain NaN or infinite values")
+
+
+
 class TriMesh(_TriMesh):
     """
     A class for handling triangular meshes using CGAL.
@@ -16,9 +51,53 @@ class TriMesh(_TriMesh):
     Inherits from the base TriMesh class and provides additional functionality.
     """
     def __init__(self, surface: pv.PolyData):
-        verts = np.array(surface.points).copy()
-        triangles = surface.faces.reshape(-1, 4)[:, 1:].copy()
-        super().__init__(verts, triangles)
+        # Validate input surface
+        validate_pyvista_polydata(surface, "input surface")
+        
+        # Triangulate to ensure we have triangular faces
+        surface = surface.triangulate()
+        
+        # Extract vertices and triangles
+        verts = np.array(surface.points, dtype=np.float64).copy()
+        faces = surface.faces.reshape(-1, 4)[:, 1:].copy().astype(np.int32)
+        
+        # Additional validation on extracted data
+        if verts.size == 0:
+            raise ValueError("Surface has no vertices after triangulation")
+        
+        if faces.size == 0:
+            raise ValueError("Surface has no triangular faces after triangulation")
+        
+        if not np.isfinite(verts).all():
+            raise ValueError("Surface vertices contain NaN or infinite values")
+        
+        # Check triangle indices
+        max_vertex_index = verts.shape[0] - 1
+        if faces.min() < 0:
+            raise ValueError("Surface has negative triangle indices")
+        
+        if faces.max() > max_vertex_index:
+            raise ValueError(f"Surface triangle indices exceed vertex count (max index: {faces.max()}, vertex count: {verts.shape[0]})")
+        # Check for degenerate triangles
+        # build a ntris x nverts matrix 
+        # populate with true for vertex in each triangle
+        # sum rows and if not equal to 3 then it is degenerate
+        face_idx = np.arange(faces.shape[0])
+        face_idx = np.tile(face_idx, (3,1)).T.flatten()
+        faces_flat = faces.flatten()
+        m = sp.coo_matrix(
+            (np.ones(faces_flat.shape[0]), (faces_flat, face_idx)),
+            shape=(verts.shape[0], faces.shape[0]),
+            dtype=bool,
+        )
+        # coo duplicates entries so just make sure its boolean
+        m = m > 0
+        if not np.all(m.sum(axis=0) == 3):
+            degen_idx = np.where(m.sum(axis=0) != 3)[1]
+            raise ValueError(f"Surface contains degenerate triangles: {degen_idx} (each triangle must have exactly 3 vertices)")
+        
+
+        super().__init__(verts, faces)
         
     def to_pyvista(self, area_threshold: float = 1e-6,  # this is the area threshold for the faces, if the area is smaller than this it will be removed
             duplicate_vertex_threshold: float = 1e-4,  # this is the threshold for duplicate vertices
@@ -36,166 +115,3 @@ class TriMesh(_TriMesh):
         triangles = np.array(np_mesh.triangles).copy()
         return pv.PolyData.from_regular_faces(vertices, triangles)
 
-def clip_pyvista_polydata_with_plane(
-    surface: pv.PolyData,
-    plane_origin: np.ndarray,
-    plane_normal: np.ndarray,
-    target_edge_length: float = 10.0,
-    remesh_before_clipping: bool = True,
-    remesh_after_clipping: bool = True,
-    remove_degenerate_faces: bool = True,
-    duplicate_vertex_threshold: float = 0.001,
-    area_threshold: float = 0.0001,
-    protect_constraints: bool = False,
-    relax_constraints: bool = True,
-) -> pv.PolyData:
-    """
-    Clip a pyvista PolyData object with a plane using the CGAL library.
-    Parameters
-    ----------
-    surface : pyvista.PolyData
-
-        The surface to be clipped.
-    plane_origin : np.ndarray
-        The origin point of the clipping plane.
-    plane_normal : np.ndarray
-        The normal vector of the clipping plane.
-    target_edge_length : float, optional
-        The target edge length for the remeshing process, by default 10.0
-    remesh_before_clipping : bool, optional
-        Whether to remesh the surface before clipping, by default True
-    remesh_after_clipping : bool, optional
-        Whether to remesh the surface after clipping, by default True
-    remove_degenerate_faces : bool, optional
-        Whether to remove degenerate faces from the resulting mesh, by default True
-    duplicate_vertex_threshold : float, optional
-        The threshold for merging duplicate vertices, by default 0.001
-    area_threshold : float, optional
-        The area threshold for removing small faces, by default 0.0001
-    
-    Returns
-    -------
-    pyvista.PolyData
-        The resulting clipped surface.
-    """
-    surface = surface.triangulate()
-    tm = NumpyMesh()
-    tm.vertices = np.array(surface.points).copy()
-    tm.triangles = surface.faces.reshape(-1, 4)[:, 1:].copy()
-    plane = NumpyPlane()
-    plane.origin = np.asarray(plane_origin, dtype=np.float64)
-    plane.normal = np.asarray(plane_normal, dtype=np.float64)
-
-    mesh = clip_plane(
-        tm,
-        plane,
-        target_edge_length=target_edge_length,
-        remesh_before_clipping=remesh_before_clipping,
-        remesh_after_clipping=remesh_after_clipping,
-        remove_degenerate_faces=remove_degenerate_faces,
-        duplicate_vertex_threshold=duplicate_vertex_threshold,
-        area_threshold=area_threshold,
-        protect_constraints=protect_constraints,
-        relax_constraints=relax_constraints,
-    )
-    return pv.PolyData.from_regular_faces(mesh.vertices, mesh.triangles)
-
-
-def clip_pyvista_polydata(
-    surface_1: pv.PolyData,
-    surface_2: pv.PolyData,
-    target_edge_length: float = 10.0,
-    remesh_before_clipping: bool = True,
-    remesh_after_clipping: bool = True,
-    remove_degenerate_faces: bool = True,
-    duplicate_vertex_threshold: float = 0.001,
-    area_threshold: float = 0.0001,
-    protect_constraints: bool = False,
-    relax_constraints: bool = True,
-) -> pv.PolyData:
-    """
-    Clip two pyvista PolyData objects using the CGAL library.
-
-    Parameters
-    ----------
-    surface_1 : pyvista.PolyData
-        The first surface to be clipped.
-    surface_2 : pyvista.PolyData
-        The second surface to be used for clipping.
-
-    Returns
-    -------
-    pyvista.PolyData
-        The resulting clipped surface.
-    """
-    surface_1 = surface_1.triangulate()
-    surface_2 = surface_2.triangulate()
-    tm = NumpyMesh()
-    tm.vertices = np.array(surface_1.points).copy()
-    tm.triangles = surface_1.faces.reshape(-1, 4)[:, 1:].copy()
-    clipper = NumpyMesh()
-    clipper.vertices = np.array(surface_2.points).copy()
-    clipper.triangles = surface_2.faces.reshape(-1, 4)[:, 1:].copy()
-    mesh = clip_surface(
-        tm,
-        clipper,
-        target_edge_length=target_edge_length,
-        remesh_before_clipping=remesh_before_clipping,
-        remesh_after_clipping=remesh_after_clipping,
-        remove_degenerate_faces=remove_degenerate_faces,
-        duplicate_vertex_threshold=duplicate_vertex_threshold,
-        area_threshold=area_threshold,
-        protect_constraints=protect_constraints,
-        relax_constraints=relax_constraints,
-    )
-    return pv.PolyData.from_regular_faces(mesh.vertices, mesh.triangles)
-
-
-def corefine_pyvista_polydata(
-    surface_1: pv.PolyData,
-    surface_2: pv.PolyData,
-    target_edge_length: float = 10.0,
-    duplicate_vertex_threshold: float = 0.001,
-    area_threshold: float = 0.0001,
-    number_of_iterations: int = 10,
-    protect_constraints: bool = True,
-    relax_constraints: bool = True,
-) -> Tuple[pv.PolyData, pv.PolyData]:
-    """
-    Corefine two pyvista PolyData objects using the CGAL library.
-
-    Parameters
-    ----------
-    surface_1 : pyvista.PolyData
-        The first surface to be cored.
-    surface_2 : pyvista.PolyData
-        The second surface to be used for cording.
-
-    Returns
-    -------
-    pyvista.PolyData
-        The resulting cored surface.
-    """
-    surface_1 = surface_1.triangulate()
-    surface_2 = surface_2.triangulate()
-    tm1 = NumpyMesh()
-    tm1.vertices = np.array(surface_1.points).copy()
-    tm1.triangles = surface_1.faces.reshape(-1, 4)[:, 1:].copy()
-    tm2 = NumpyMesh()
-    tm2.vertices = np.array(surface_2.points).copy()
-    tm2.triangles = surface_2.faces.reshape(-1, 4)[:, 1:].copy()
-
-    tm1, tm2 = corefine_mesh(
-        tm1,
-        tm2,
-        target_edge_length=target_edge_length,
-        duplicate_vertex_threshold=duplicate_vertex_threshold,
-        area_threshold=area_threshold,
-        number_of_iterations=number_of_iterations,
-        relax_constraints=relax_constraints,
-        protect_constraints=protect_constraints,
-    )
-    return (
-        pv.PolyData.from_regular_faces(tm1.vertices, tm1.triangles),
-        pv.PolyData.from_regular_faces(tm2.vertices, tm2.triangles),
-    )

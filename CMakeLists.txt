@@ -10,7 +10,6 @@ include_directories(${CMAKE_SOURCE_DIR}/src)
 
 add_library(_loop_cgal MODULE
     loop_cgal/bindings.cpp
-    src/clip.cpp
     src/mesh.cpp
     src/meshutils.cpp
     src/globals.cpp
