@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            C:\vcpkg
+            C:/vcpkg
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
@@ -56,20 +56,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $Env:VCPKG_ROOT = "C:\vcpkg"
+          $Env:VCPKG_ROOT = "C:/vcpkg"
           if (!(Test-Path $Env:VCPKG_ROOT)) {
               git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
-              & "$Env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+              & "$Env:VCPKG_ROOT/bootstrap-vcpkg.bat"
           }
            # Only install if packages are missing
-          if (!(Test-Path "$Env:VCPKG_ROOT\installed\x64-windows\cgal")) {
-              & "$Env:VCPKG_ROOT\vcpkg.exe" install yasm-tool cgal
+          if (!(Test-Path "$Env:VCPKG_ROOT/installed/x64-windows/cgal")) {
+              & "$Env:VCPKG_ROOT/vcpkg.exe" install yasm-tool cgal
           }
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
           # now inject your extra CMake flags:
-          $toolchain = "$Env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake"
+          $toolchain = "$Env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
           echo "CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=${toolchain} -DVCPKG_ROOT=${Env:VCPKG_ROOT}" >> $Env:GITHUB_ENV
-      
+          echo $CMAKE_ARGS
       - name: Build wheels
         run: |
           cibuildwheel --output-dir dist
@@ -98,6 +98,7 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
 
 
 
