@@ -24,8 +24,9 @@ jobs:
     name: Build wheels
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-14]
+        os: [ubuntu-latest, macos-latest, macos-14,windows-latest]
     env:
       MACOSX_DEPLOYMENT_TARGET: "14"  
     steps:
@@ -77,3 +78,4 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
