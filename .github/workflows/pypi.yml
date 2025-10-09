@@ -1,89 +1,75 @@
-name: Deploy to PYPI
+name: 🛠️ Build and test wheels
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+
 jobs:
-  
-  sdist:
-    name: Build sdist
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
-      - name: Build sdist
-        run: python -m build --sdist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: ./dist/*.tar.gz
-  wheels:
-    name: Build wheels
+  build:
+    name: Build on ${{ matrix.os }} with Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-14,windows-latest]
-    env:
-      MACOSX_DEPLOYMENT_TARGET: '15.0' 
+        os: [ubuntu-22.04, macos-13, windows-2022]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-      - name: Install dependencies
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Upgrade pip and install build tools
         run: |
           python -m pip install --upgrade pip
-          pip install cibuildwheel
-      - if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'     
-        run: | 
-          brew install cgal
-      - name: Bootstrap & install with vcpkg on Windows
+          pip install build scikit-build-core pybind11 cibuildwheel
+
+      # 🧩 Cache vcpkg on Windows
+      - name: Restore vcpkg cache
         if: runner.os == 'Windows'
-        run: |
-          $Env:VCPKG_ROOT = "${{ github.workspace }}\vcpkg"
-          git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
-          & $Env:VCPKG_ROOT\bootstrap-vcpkg.bat
-          & $Env:VCPKG_ROOT\vcpkg.exe install yasm-tool:x86-windows cgal:x64-windows
-
-          # export VCPKG_ROOT so later steps can see it
-          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
-
-          # now inject your extra CMake flags:
-          $toolchain = "$Env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          echo "CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=${toolchain//\\//} -DVCPKG_ROOT=${Env:VCPKG_ROOT//\\//}" >> $Env:GITHUB_EN
-      
-      - name: Build wheels
-        run: |
-          cibuildwheel --output-dir dist
-      - uses: actions/upload-artifact@v4
+        id: cache-vcpkg
+        uses: actions/cache@v4
         with:
-            name: wheels-${{ matrix.os }}
-            path: ./dist/*
-  publish:
-    name: Publish wheels and sdist to PyPI
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    needs: [wheels,sdist]
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+          path: |
+            C:\vcpkg
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
 
-      - name: Move all distributions to `dist/`
+      - name: Install vcpkg dependencies (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          mkdir -p dist
-          find artifacts -name '*.whl' -exec cp {} dist/ \;
-          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
+          $Env:VCPKG_ROOT = "C:\vcpkg"
+          if (!(Test-Path $Env:VCPKG_ROOT)) {
+              git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
+              & "$Env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          }
+          & "$Env:VCPKG_ROOT\vcpkg.exe" install  yasm-tool:x86-windows cgal:x64-windows
+          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $env:GITHUB_ENV
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
-          verbose: true
-          packages-dir: dist/
+      # 🐧 Linux / macOS system deps
+      - name: Install CGAL (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libcgal-dev libgmp-dev libmpfr-dev
 
+      - name: Install CGAL (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cgal gmp mpfr
 
+      # 🧱 Build the wheel
+      - name: Build wheel
+        run: |
+          pip install .
+          python -c "import loop_cgal; print('✅ loop_cgal import successful')"
 
-
+      # 🧪 Optional tests
+      - name: Run basic tests
+        run: |
+          python -c "import loop_cgal; print(loop_cgal.__doc__)"
