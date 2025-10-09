@@ -39,15 +39,20 @@ jobs:
       - if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'     
         run: | 
           brew install cgal
-      - name: Install vcpkg dependencies (Windows only)
+      - name: Bootstrap & install with vcpkg on Windows
         if: runner.os == 'Windows'
-        shell: pwsh
         run: |
           $Env:VCPKG_ROOT = "${{ github.workspace }}\vcpkg"
           git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
           & $Env:VCPKG_ROOT\bootstrap-vcpkg.bat
           & $Env:VCPKG_ROOT\vcpkg.exe install yasm-tool:x86-windows cgal:x64-windows
-          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $env:GITHUB_ENV
+
+          # export VCPKG_ROOT so later steps can see it
+          echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
+
+          # now inject your extra CMake flags:
+          echo "CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=$Env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake -DVCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
+
       
       - name: Build wheels
         run: |
@@ -78,4 +83,5 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
 
