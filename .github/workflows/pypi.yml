@@ -60,9 +60,11 @@ jobs:
           if (!(Test-Path $Env:VCPKG_ROOT)) {
               git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
               & "$Env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-               & "$Env:VCPKG_ROOT\vcpkg.exe" install yasm-tool:x86-windows cgal:x64-windows
           }
-         
+           # Only install if packages are missing
+          if (!(Test-Path "$Env:VCPKG_ROOT\installed\x64-windows\cgal")) {
+              & "$Env:VCPKG_ROOT\vcpkg.exe" install yasm-tool:x86-windows cgal:x64-windows
+          }
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
           # now inject your extra CMake flags:
           $toolchain = "$Env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
@@ -96,6 +98,7 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
 
 
 
