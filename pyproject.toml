@@ -30,11 +30,6 @@ dependencies = ['pyvista']
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
-[tool.scikit-build.cmake]
-args = [
-  "-DCMAKE_TOOLCHAIN_FILE=C:/Users/lachl/L3DF/repositories/vcpkg/scripts/buildsystems/vcpkg.cmake",
-"-DVCPKG_ROOT=$env{VCPKG_ROOT}"
-]
 
 
 [tool.cibuildwheel.pyodide]
