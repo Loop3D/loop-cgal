@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-14,windows-latest]
     env:
-      MACOSX_DEPLOYMENT_TARGET: "14"  
+      MACOSX_DEPLOYMENT_TARGET: '15.0' 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,5 +83,6 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
 
 
