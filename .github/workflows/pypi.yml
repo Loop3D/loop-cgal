@@ -51,8 +51,8 @@ jobs:
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
 
           # now inject your extra CMake flags:
-          echo "CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=$Env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake -DVCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
-
+          $toolchain = "$Env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          echo "CMAKE_ARGS=-DCMAKE_TOOLCHAIN_FILE=${toolchain//\\//} -DVCPKG_ROOT=${Env:VCPKG_ROOT//\\//}" >> $Env:GITHUB_EN
       
       - name: Build wheels
         run: |
@@ -83,6 +83,7 @@ jobs:
           skip-existing: true
           verbose: true
           packages-dir: dist/
+
 
 
 
