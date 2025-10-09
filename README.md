@@ -36,3 +36,16 @@ Loop-cgal is a Python package for mesh processing operations using the  CGAL (Co
    ```bash
    pip install loop-cgal
    ```
+
+### Windows using vcpkg
+
+To install dependencies using [vcpkg](https://vcpkg.io/):
+
+1. Install vcpkg following the [official guide](https://vcpkg.io/en/getting-started.html).
+2. Install required libraries:
+    ```bash
+    vcpkg install yasm-tool:x86-windows cgal:x64-windows
+    ```
+3. Set the `VCPKG_ROOT` environment variable to point to your vcpkg installation directory.
+4. Set the `CMAKE_ARGS` to include `-DCMAKE_TOOLCHAIN_FILE` and `-DVCPKG_ROOT` e.g. CMAKE_ARGS="-DCMAKE_TOOLCHAIN_FILE=$Env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake -DVCPKG_ROOT=$Env:VCPKG_ROOT"
+4. Proceed with the build and installation steps as described above.
