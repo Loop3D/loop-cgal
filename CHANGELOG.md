@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.6](https://github.com/Loop3D/loop-cgal/compare/v0.1.5...v0.1.6) (2025-10-09)
+
+
+### Bug Fixes
+
+* adding scipy/numpy deps ([65f9dd9](https://github.com/Loop3D/loop-cgal/commit/65f9dd9444b544535ec0a6f69a0f71202f2ab978))
+* trying cache again ([16bacf6](https://github.com/Loop3D/loop-cgal/commit/16bacf6ee6bf732c7e86ddd64af448f125273091))
+* update windows env vbl ([101cf08](https://github.com/Loop3D/loop-cgal/commit/101cf0872bb3d529875ec9ce0428d45fee960e0f))
+
+
+### Documentation
+
+* adding install instructions for windows ([8131c77](https://github.com/Loop3D/loop-cgal/commit/8131c774f2d15a0a2761d8b1560d5b8694afcab1))
+
 ## [0.1.5](https://github.com/Loop3D/loop-cgal/compare/v0.1.4...v0.1.5) (2025-10-08)
 
 
