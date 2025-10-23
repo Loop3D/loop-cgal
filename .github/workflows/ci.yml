@@ -15,7 +15,7 @@ jobs:
       CXX: ccache g++
     strategy:
       matrix:
-        python-version: [3.9, 3.10, 3.11, 3.12]
+        python-version: ${{ fromJSON(vars.PYTHON_VERSIONS)}}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
