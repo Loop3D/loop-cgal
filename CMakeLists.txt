@@ -31,22 +31,22 @@ if(WIN32)
 endif()
 
 # Windows: copy required DLLs from VCPKG_ROOT
-if(WIN32)
-    if(NOT DEFINED ENV{VCPKG_ROOT})
-        message(FATAL_ERROR "VCPKG_ROOT environment variable is not set!")
-    endif()
-    set(VCPKG_ROOT $ENV{VCPKG_ROOT})
-    message(STATUS "Using VCPKG_ROOT: ${VCPKG_ROOT}")
 
-    add_custom_command(TARGET _loop_cgal POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${VCPKG_ROOT}/packages/gmp_x64-windows/bin/gmp-10.dll"
-            "$<TARGET_FILE_DIR:_loop_cgal>"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${VCPKG_ROOT}/packages/mpfr_x64-windows/bin/mpfr-6.dll"
-            "$<TARGET_FILE_DIR:_loop_cgal>"
-    )
+
+if(WIN32)
+    install(CODE "
+        file(INSTALL
+            DESTINATION \"\${CMAKE_INSTALL_PREFIX}/loop_cgal\"
+            TYPE FILE
+            FILES
+                \"${VCPKG_ROOT}/packages/gmp_x64-windows/bin/gmp-10.dll\"
+                \"${VCPKG_ROOT}/packages/mpfr_x64-windows/bin/mpfr-6.dll\"
+        )
+        message(\"[CMake Install] Copied gmp-10.dll and mpfr-6.dll to install directory.\")
+    ")
 endif()
+
+
 
 # Install for Python packages
 install(TARGETS _loop_cgal
