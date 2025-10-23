@@ -24,8 +24,11 @@ add_library(_loop_cgal MODULE
 
 target_link_libraries(_loop_cgal PRIVATE pybind11::module CGAL::CGAL)
 target_include_directories(_loop_cgal PRIVATE ${CMAKE_SOURCE_DIR}/src)
+set_target_properties(_loop_cgal PROPERTIES PREFIX "" SUFFIX ".so")
 
-set_target_properties(_loop_cgal PROPERTIES PREFIX "" SUFFIX ".pyd")
+if(WIN32)
+    set_target_properties(_loop_cgal PROPERTIES PREFIX "" SUFFIX ".pyd")
+endif()
 
 # Windows: copy required DLLs from VCPKG_ROOT
 if(WIN32)
