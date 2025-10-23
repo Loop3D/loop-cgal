@@ -7,9 +7,12 @@ on:
     branches: ["**"]
 
 jobs:
-  build-and-test:
-    name: Build and Test (Ubuntu, Python ${{ matrix.python-version }})
+  build-and-test-linux:
+    name: Build and Test (Linux, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    env:
+      CC: ccache gcc
+      CXX: ccache g++
     strategy:
       matrix:
         python-version: [3.9, 3.10, 3.11, 3.12]
@@ -55,11 +58,60 @@ jobs:
           sudo apt-get install -y build-essential cmake python3-dev pkg-config \
             libgmp-dev libmpfr-dev libeigen3-dev libcgal-dev libboost-dev ccache
 
-      - name: Configure ccache
+      - name: Upgrade pip and install build tools
         run: |
-          echo "Using ccache: $(ccache --version | head -n 1)"
-          export CC='ccache gcc'
-          export CXX='ccache g++'
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade scikit-build-core pybind11 cmake
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade numpy scipy pyvista pytest
+
+      - name: Build and install package
+        run: |
+          python -m pip install -e .
+
+      - name: Run pytest
+        run: |
+          pytest -q
+
+  build-and-test-macos:
+    name: Build and Test (macOS, Python ${{ matrix.python-version }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11, 3.12]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/pip
+          key: macos-pip-${{ hashFiles('**/pyproject.toml') }}-python-${{ matrix.python-version }}
+          restore-keys: |
+            macos-pip-
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+          key: macos-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/pyproject.toml') }}-python-${{ matrix.python-version }}
+          restore-keys: |
+            macos-cmake-build-
+
+      - name: Install system dependencies (Homebrew)
+        run: |
+          brew update || true
+          brew install cmake eigen boost cgal ccache || true
 
       - name: Upgrade pip and install build tools
         run: |
@@ -71,6 +123,77 @@ jobs:
           python -m pip install --upgrade numpy scipy pyvista pytest
 
       - name: Build and install package
+        run: |
+          python -m pip install -e .
+
+      - name: Run pytest
+        run: |
+          pytest -q
+
+  build-and-test-windows:
+    name: Build and Test (Windows, Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11, 3.12]
+    env:
+      VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            %USERPROFILE%\\AppData\\Local\\pip\Cache
+          key: windows-pip-${{ hashFiles('**/pyproject.toml') }}-python-${{ matrix.python-version }}
+          restore-keys: |
+            windows-pip-
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+          key: windows-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/pyproject.toml') }}-python-${{ matrix.python-version }}
+          restore-keys: |
+            windows-cmake-build-
+
+      - name: Bootstrap vcpkg and install dependencies
+        shell: pwsh
+        run: |
+          git clone --depth=1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          Push-Location $env:VCPKG_ROOT
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install cgal eigen3 boost-filesystem boost-system --triplet $env:VCPKG_DEFAULT_TRIPLET
+          Pop-Location
+
+      - name: Set VCPKG toolchain for CMake
+        run: |
+          echo "VCPKG_ROOT=$env:VCPKG_ROOT"
+          echo "::set-env name=CMAKE_TOOLCHAIN_FILE::${{ runner.temp }}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+        shell: bash
+
+      - name: Upgrade pip and install build tools
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade scikit-build-core pybind11 cmake
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade numpy scipy pyvista pytest
+
+      - name: Build and install package (with vcpkg toolchain)
+        shell: bash
+        env:
+          CMAKE_TOOLCHAIN_FILE: ${{ runner.temp }}\vcpkg\scripts\buildsystems\vcpkg.cmake
         run: |
           python -m pip install -e .
 
