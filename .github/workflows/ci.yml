@@ -135,9 +135,9 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: [3.9, 3.10, 3.11, 3.12]
+        python-version: ${{ fromJSON(vars.PYTHON_VERSIONS)}}
     env:
-      VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+      VCPKG_ROOT: C:\\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
     steps:
       - name: Checkout repository
@@ -166,6 +166,15 @@ jobs:
           restore-keys: |
             windows-cmake-build-
 
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\\vcpkg
+          key: windows-vcpkg-${{ hashFiles('**/pyproject.toml') }}-python-${{ matrix.python-version }}
+          restore-keys: |
+            windows-vcpkg-
+
       - name: Bootstrap vcpkg and install dependencies
         shell: pwsh
         run: |
@@ -176,10 +185,11 @@ jobs:
           Pop-Location
 
       - name: Set VCPKG toolchain for CMake
+        shell: pwsh
         run: |
-          echo "VCPKG_ROOT=$env:VCPKG_ROOT"
-          echo "::set-env name=CMAKE_TOOLCHAIN_FILE::${{ runner.temp }}\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
-        shell: bash
+          $toolchain = "$env:VCPKG_ROOT\\scripts\\buildsystems\\vcpkg.cmake"
+          Write-Host "Setting CMAKE_TOOLCHAIN_FILE to $toolchain"
+          Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_TOOLCHAIN_FILE=$toolchain"
 
       - name: Upgrade pip and install build tools
         run: |
@@ -193,7 +203,7 @@ jobs:
       - name: Build and install package (with vcpkg toolchain)
         shell: bash
         env:
-          CMAKE_TOOLCHAIN_FILE: ${{ runner.temp }}\vcpkg\scripts\buildsystems\vcpkg.cmake
+          CMAKE_TOOLCHAIN_FILE: ${{ env.CMAKE_TOOLCHAIN_FILE }}
         run: |
           python -m pip install -e .
 
