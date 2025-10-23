@@ -10,6 +10,7 @@
 #include <pybind11/numpy.h>
 #include <utility> // For std::pair
 #include <vector>
+#include "meshenums.h"
 typedef CGAL::Simple_cartesian<double> Kernel;
 typedef Kernel::Point_3 Point;
 typedef CGAL::Surface_mesh<Point> TriangleMesh;
@@ -34,6 +35,7 @@ public:
                     int number_of_iterations, bool protect_constraints,
                     bool relax_constraints);
         void init();
+        void cut_with_implicit_function(const std::vector<double>& property, double value, ImplicitCutMode cutmode = ImplicitCutMode::KEEP_POSITIVE_SIDE);
         // Getters for mesh properties
         void reverseFaceOrientation();
         NumpyMesh save(double area_threshold, double duplicate_vertex_threshold);
