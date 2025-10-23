@@ -1,22 +1,30 @@
 import numpy as np
-import loop_cgal
 import pyvista as pv
-def test_degenerate_triangles():
-    """Test handling of degenerate triangles in TriMesh."""
-    # Create a surface with degenerate triangles
-    points = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0.5, 0.5, 0]])
-    faces = np.array([[0, 1, 2], [2, 3, 4], [4, 0, 0]])  # Degenerate triangle (4 is not a valid vertex)
-    
-    surface = pv.PolyData.from_regular_faces(points, faces)
-    
-    try:
-        tri_mesh = loop_cgal.TriMesh(surface)
-        print("TriMesh created successfully with degenerate triangles.")
-    except ValueError as e:
-        print(f"ValueError: {e}")
+import pytest
+import loop_cgal
 
 
-if __name__ == "__main__":
-    loop_cgal.set_verbose(True)
-    test_degenerate_triangles()
-    print("Test completed.")
+def make_invalid_polydata_invalid_index():
+    # face references a non-existent vertex index (4)
+    points = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]])
+    faces = np.array([[0, 1, 2], [2, 3, 4]])
+    return pv.PolyData.from_regular_faces(points, faces)
+
+
+def make_polydata_degenerate_triangle():
+    # triangle repeats a vertex index -> degenerate
+    points = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]])
+    faces = np.array([[0, 1, 1]])
+    return pv.PolyData.from_regular_faces(points, faces)
+
+
+def test_invalid_index_raises_value_error():
+    surface = make_invalid_polydata_invalid_index()
+    with pytest.raises(ValueError, match="exceed vertex count"):
+        _ = loop_cgal.TriMesh(surface)
+
+
+def test_degenerate_triangle_raises_value_error():
+    surface = make_polydata_degenerate_triangle()
+    with pytest.raises(ValueError, match="degenerate triangles"):
+        _ = loop_cgal.TriMesh(surface)
