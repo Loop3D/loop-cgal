@@ -32,7 +32,7 @@ def validate_pyvista_polydata(
         raise ValueError(f"{surface_name} points contain NaN or infinite values")
 
 
-def validate_vertices_and_faces(verts, faces) -> bool:
+def validate_vertices_and_faces(verts, faces):
     """Validate vertices and faces arrays.
     Parameters
     ----------
@@ -42,10 +42,6 @@ def validate_vertices_and_faces(verts, faces) -> bool:
     faces : np.ndarray
 
         An array of shape (n_faces, 3) containing the triangle vertex indices.
-    Returns
-    -------
-    bool
-        True if valid, False otherwise.
     Raises
     ------
     ValueError

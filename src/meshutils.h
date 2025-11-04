@@ -10,5 +10,5 @@ double calculate_triangle_area(const std::array<double, 3> &v1,
                                const std::array<double, 3> &v3);
 Exact_Mesh convert_to_exact(const TriMesh& input);
 TriangleMesh convert_to_double_mesh(const Exact_Mesh& input);
-  
+
 #endif // MESHUTILS_H

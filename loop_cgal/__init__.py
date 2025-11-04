@@ -30,7 +30,7 @@ class TriMesh(_TriMesh):
         # Extract vertices and triangles
         verts = np.array(surface.points, dtype=np.float64).copy()
         faces = surface.faces.reshape(-1, 4)[:, 1:].copy().astype(np.int32)
-        if (not validate_vertices_and_faces(verts, faces)):
+        if not validate_vertices_and_faces(verts, faces):
             raise ValueError("Invalid surface geometry")
 
         super().__init__(verts, faces)
@@ -54,7 +54,7 @@ class TriMesh(_TriMesh):
             The created TriMesh object.
         """
         # Create a temporary PyVista PolyData object for validation
-        if (not validate_vertices_and_faces(vertices, triangles)):
+        if not validate_vertices_and_faces(vertices, triangles):
             raise ValueError("Invalid vertices or triangles")
         surface = pv.PolyData(vertices, np.hstack((np.full((triangles.shape[0], 1), 3), triangles)).flatten())
         return cls(surface)
