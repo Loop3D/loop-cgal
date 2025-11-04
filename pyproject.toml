@@ -86,3 +86,5 @@ manylinux-x86_64-image = "lachlangrose/manylinuxeigencgal"
 [tool.cibuildwheel.macos]
 archs = ["x86_64","arm64"] 
 
+[tool.setuptools.package-data]
+"loop_cgal" = ["*.dll"]
