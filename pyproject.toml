@@ -10,7 +10,7 @@ build-backend = "scikit_build_core.build"
 [project]
 authors = [{ name = "Lachlan Grose", email = "lachlan.grose@monash.edu" }]
 name = "loop_cgal"
-version = "0.1.5"
+version = "0.1.6"
 description = "python bindings for cgal for implicit model meshing"
 readme = "README.md"
 requires-python = ">=3.7"
