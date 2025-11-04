@@ -36,8 +36,6 @@ def test_loading_and_saving(square_surface):
 def test_cut_with_surface(square_surface, clipper_surface):
     tm = loop_cgal.TriMesh(square_surface)
     clip = loop_cgal.TriMesh(clipper_surface)
-    tm.to_pyvista().save('before_cut_with_surface.vtk')
-    clip.to_pyvista().save('clip.vtk')
     before = np.array(tm.save().triangles).shape[0]
     tm.cut_with_surface(clip)
     after = np.array(tm.save().triangles).shape[0]
