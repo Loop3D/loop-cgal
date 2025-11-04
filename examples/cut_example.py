@@ -2,7 +2,6 @@ import numpy as np
 import pyvista as pv
 from loop_cgal import TriMesh, set_verbose
 from LoopStructural.datatypes import BoundingBox
-import matplotlib.pyplot as plt
 set_verbose(True)
 
 
