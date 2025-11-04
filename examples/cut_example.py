@@ -1,5 +1,4 @@
 import numpy as np
-import pyvista as pv
 from loop_cgal import TriMesh, set_verbose
 from LoopStructural.datatypes import BoundingBox
 set_verbose(True)

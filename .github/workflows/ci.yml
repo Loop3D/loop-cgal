@@ -27,8 +27,8 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get install -y libgl1-mesa-dev libeigen3-dev libcgal-dev
-      - if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'     
-        run: | 
+      - if: ${{ startsWith(matrix.os, 'macos') }}
+        run: |
           brew install cgal
       # Cache vcpkg on Windows
       - name: Restore vcpkg cache

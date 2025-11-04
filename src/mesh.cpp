@@ -294,7 +294,7 @@ void TriMesh::cutWithSurface(TriMesh &clipper,
                              bool preserve_intersection_clipper,
                             bool use_exact_kernel)
 {
-  
+
   if (LoopCGAL::verbose)
   {
     std::cout << "Cutting mesh with surface." << std::endl;
@@ -692,7 +692,7 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
       double v0 = newvals[tri[0]];
       double v1 = newvals[tri[1]];
       double v2 = newvals[tri[2]];
-      if (v0 <= value && v1 <= value && v2 <= value)
+      if (v0 < value && v1 < value && v2 < value)
       {
         continue;
       }

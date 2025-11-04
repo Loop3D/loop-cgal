@@ -10,7 +10,6 @@ from loop_cgal._loop_cgal import ImplicitCutMode
 def square_surface():
     # Unit square made of two triangles
     return pv.Plane(center=(0,0,0),direction=(0,0,1),i_size=1.0,j_size=1.0)
-    
 
 
 @pytest.fixture

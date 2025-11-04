@@ -27,7 +27,9 @@ classifiers = [
 ]
 
 dependencies = ['pyvista','vtk','scipy','numpy']
-optional-dependencies = { test = ['pytest'] }
+
+[project.optional-dependencies]
+test = ['pytest']
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
