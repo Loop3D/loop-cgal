@@ -26,7 +26,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-dependencies = ['pyvista','scipy','numpy']
+dependencies = ['pyvista','vtk','scipy','numpy']
+
+[project.optional-dependencies]
+test = ['pytest']
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
@@ -83,3 +86,5 @@ manylinux-x86_64-image = "lachlangrose/manylinuxeigencgal"
 [tool.cibuildwheel.macos]
 archs = ["x86_64","arm64"] 
 
+[tool.setuptools.package-data]
+"loop_cgal" = ["*.dll"]
