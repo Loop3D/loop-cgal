@@ -258,3 +258,43 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
   result.triangles = triangles_array;
   return result;
 }
+Exact_Mesh convert_to_exact(const TriMesh& input) {
+  Exact_Mesh result;
+  std::map<TriangleMesh::Vertex_index, Exact_Mesh::Vertex_index> vmap;
+
+  for (auto v : vertices(input.get_mesh())) {
+    const auto& p = input.get_mesh().point(v);
+    Exact_K::Point_3 ep(p.x(), p.y(), p.z());
+    vmap[v] = result.add_vertex(ep);
+  }
+
+  for (auto f : faces(input.get_mesh())) {
+    std::vector<Exact_Mesh::Vertex_index> face_vertices;
+    for (auto v : vertices_around_face(input.get_mesh().halfedge(f), input.get_mesh())) {
+      face_vertices.push_back(vmap[v]);
+    }
+    result.add_face(face_vertices);
+  }
+
+  return result;
+}
+TriangleMesh convert_to_double_mesh(const Exact_Mesh& input) {
+  TriangleMesh result;
+  std::map<Exact_Mesh::Vertex_index, TriangleMesh::Vertex_index> vmap;
+
+  for (auto v : vertices(input)) {
+    const auto& p = input.point(v);
+    Point dp(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
+    vmap[v] = result.add_vertex(dp);
+  }
+
+  for (auto f : faces(input)) {
+    std::vector<TriangleMesh::Vertex_index> face_vertices;
+    for (auto v : vertices_around_face(input.halfedge(f), input)) {
+      face_vertices.push_back(vmap[v]);
+    }
+    result.add_face(face_vertices);
+  }
+
+  return result;
+}

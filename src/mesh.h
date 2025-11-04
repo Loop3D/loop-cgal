@@ -3,6 +3,7 @@
 
 #include <CGAL/Plane_3.h>
 #include <CGAL/Simple_cartesian.h>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Vector_3.h>
 #include <CGAL/property_map.h>
@@ -11,6 +12,8 @@
 #include <utility> // For std::pair
 #include <vector>
 #include "meshenums.h"
+typedef CGAL::Exact_predicates_exact_constructions_kernel Exact_K;
+typedef CGAL::Surface_mesh<Exact_K::Point_3> Exact_Mesh;
 typedef CGAL::Simple_cartesian<double> Kernel;
 typedef Kernel::Point_3 Point;
 typedef CGAL::Surface_mesh<Point> TriangleMesh;
@@ -40,7 +43,8 @@ public:
         void reverseFaceOrientation();
         NumpyMesh save(double area_threshold, double duplicate_vertex_threshold);
         void add_fixed_edges(const pybind11::array_t<int> &pairs);
-
+        const TriangleMesh& get_mesh() const { return _mesh; }
+        void set_mesh(const TriangleMesh& mesh) { _mesh = mesh; }
 private:
         std::set<TriangleMesh::Edge_index> _fixedEdges;
         TriangleMesh _mesh; // The underlying CGAL surface mesh
