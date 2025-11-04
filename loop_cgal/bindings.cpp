@@ -24,7 +24,8 @@ PYBIND11_MODULE(_loop_cgal, m)
               py::arg("vertices"), py::arg("triangles"))
          .def("cut_with_surface", &TriMesh::cutWithSurface, py::arg("surface"),
               py::arg("preserve_intersection") = false,
-              py::arg("preserve_intersection_clipper") = false)
+              py::arg("preserve_intersection_clipper") = false,
+              py::arg("use_exact_kernel") = true)
          .def("remesh", &TriMesh::remesh, py::arg("split_long_edges") = true,
               py::arg("target_edge_length") = 10.0,
               py::arg("number_of_iterations") = 3,

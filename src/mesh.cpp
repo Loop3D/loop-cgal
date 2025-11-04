@@ -291,10 +291,10 @@ void TriMesh::reverseFaceOrientation()
 
 void TriMesh::cutWithSurface(TriMesh &clipper,
                              bool preserve_intersection,
-                             bool preserve_intersection_clipper)
+                             bool preserve_intersection_clipper,
+                            bool use_exact_kernel)
 {
-  Exact_Mesh exact_clipper = convert_to_exact(clipper);
-  Exact_Mesh exact_mesh = convert_to_exact(*this);
+  
   if (LoopCGAL::verbose)
   {
     std::cout << "Cutting mesh with surface." << std::endl;
@@ -342,8 +342,16 @@ void TriMesh::cutWithSurface(TriMesh &clipper,
       bool flag = false;
       try
       {
-        flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
+        if (use_exact_kernel){
+          Exact_Mesh exact_clipper = convert_to_exact(clipper);
+          Exact_Mesh exact_mesh = convert_to_exact(*this);
+          flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
         set_mesh(convert_to_double_mesh(exact_mesh));
+        }
+        else{
+          flag = PMP::clip(_mesh, clipper._mesh, CGAL::parameters::clip_volume(false));
+        }
+        
       }
       catch (const std::exception &e)
       {

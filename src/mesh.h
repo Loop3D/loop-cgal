@@ -31,7 +31,8 @@ public:
         // Method to cut the mesh with another surface object
         void cutWithSurface(TriMesh &surface, 
                             bool preserve_intersection = false,
-                            bool preserve_intersection_clipper = false);
+                            bool preserve_intersection_clipper = false,
+                            bool use_exact_kernel = true);
 
         // Method to remesh the triangle mesh
         void remesh(bool split_long_edges,  double target_edge_length,

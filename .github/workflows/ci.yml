@@ -7,7 +7,7 @@ on:
     branches: ["**"]
 jobs:
   tester:
-    name: Build wheels
+    name: Testing 
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
