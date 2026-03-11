@@ -5,9 +5,10 @@
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
-#include <CGAL/Polygon_mesh_processing/merge_border_vertices.h>
+#include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 #include <CGAL/Polygon_mesh_processing/remesh.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
+#include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/Surface_mesh.h>
@@ -248,6 +249,7 @@ void TriMesh::remesh(bool split_long_edges,
     if (split_long_edges)
       if (LoopCGAL::verbose)
         std::cout << "Splitting long edges in iteration " << iter + 1 << ".\n";
+      
     PMP::split_long_edges(
         edges(_mesh), target_edge_length, _mesh,
         CGAL::parameters::edge_is_constrained_map(_edge_is_constrained_map));
@@ -289,12 +291,11 @@ void TriMesh::reverseFaceOrientation()
   }
 }
 
-void TriMesh::cutWithSurface(TriMesh &clipper,
+int TriMesh::cutWithSurface(TriMesh &clipper,
                              bool preserve_intersection,
                              bool preserve_intersection_clipper,
                             bool use_exact_kernel)
 {
-
   if (LoopCGAL::verbose)
   {
     std::cout << "Cutting mesh with surface." << std::endl;
@@ -304,29 +305,124 @@ void TriMesh::cutWithSurface(TriMesh &clipper,
   if (!CGAL::is_valid_polygon_mesh(_mesh, LoopCGAL::verbose))
   {
     std::cerr << "Error: Source mesh is invalid!" << std::endl;
-    return;
+    return 0;
   }
 
   if (!CGAL::is_valid_polygon_mesh(clipper._mesh, LoopCGAL::verbose))
   {
     std::cerr << "Error: Clipper mesh is invalid!" << std::endl;
-    return;
+    return 0;
   }
 
   if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
   {
     std::cerr << "Error: Source mesh is empty!" << std::endl;
-    return;
+    return 0;
   }
 
   if (clipper._mesh.number_of_vertices() == 0 ||
       clipper._mesh.number_of_faces() == 0)
   {
     std::cerr << "Error: Clipper mesh is empty!" << std::endl;
-    return;
+    return 0;
   }
 
-  bool intersection = PMP::do_intersect(_mesh, clipper._mesh);
+  // Merge any collocated border vertices on the target before clipping.
+  // Collocated vertices produce zero-area faces whose degenerate bounding boxes
+  // can make PMP::do_intersect return false even when the meshes overlap.
+  PMP::stitch_borders(_mesh);
+  // Remove any isolated (orphan) vertices — they survive PMP::clip unchanged
+  // and would pollute the output point set with stale positions.
+  PMP::remove_isolated_vertices(_mesh);
+
+  // -----------------------------------------------------------------------
+  // Grow the clipper by extruding a skirt of new triangles outward from each
+  // boundary edge.  Each skirt quad's normal matches its adjacent border face,
+  // so the extension is along the surface tangent — not a global scale.
+  // Interior vertices and faces are completely untouched, so the cut location
+  // is preserved exactly for both planar and curved (listric) clippers.
+  // -----------------------------------------------------------------------
+  CGAL::Bbox_3 target_bb = PMP::bbox(_mesh);
+  const double target_diag = std::sqrt(
+      CGAL::square(target_bb.xmax() - target_bb.xmin()) +
+      CGAL::square(target_bb.ymax() - target_bb.ymin()) +
+      CGAL::square(target_bb.zmax() - target_bb.zmin()));
+
+  // Pass 1: accumulate per-ver tex outward directions from each adjacent border face.
+  // For a border halfedge h (source→target), the outward direction is fn × d,
+  // where fn is the adjacent face normal and d is the normalised edge direction.
+  // This lies in the face's tangent plane and points away from its interior.
+  std::map<TriangleMesh::Vertex_index, Vector> outward_sum;
+  for (auto he : clipper._mesh.halfedges())
+  {
+    if (!clipper._mesh.is_border(he)) continue;
+
+    const Point &ps = clipper._mesh.point(clipper._mesh.source(he));
+    const Point &pt = clipper._mesh.point(clipper._mesh.target(he));
+    Vector d = pt - ps;
+    const double d_len = std::sqrt(d.squared_length());
+    if (d_len < 1e-10) continue;
+    d = d / d_len;
+
+    const auto adj_face = clipper._mesh.face(clipper._mesh.opposite(he));
+    const Vector fn = PMP::compute_face_normal(adj_face, clipper._mesh);
+    const Vector out = CGAL::cross_product(fn, d);
+    const double out_len = std::sqrt(out.squared_length());
+    if (out_len < 1e-10) continue;
+
+    auto vs = clipper._mesh.source(he);
+    auto vt = clipper._mesh.target(he);
+    outward_sum.try_emplace(vs, 0.0, 0.0, 0.0);
+    outward_sum.try_emplace(vt, 0.0, 0.0, 0.0);
+    outward_sum[vs] = outward_sum[vs] + out / out_len;
+    outward_sum[vt] = outward_sum[vt] + out / out_len;
+  }
+
+  // Pass 2: copy the clipper, merge any collocated border vertices (they
+  // produce degenerate faces whose normals are near-zero, which would cause
+  // skirt edges to be silently skipped and leave bridge gaps), then add one
+  // new vertex per boundary vertex pushed outward by target_diag, and stitch
+  // a skirt quad (two triangles) per boundary edge.  The winding order
+  // (source, target, target_new) produces normals consistent with the
+  // adjacent interior face.
+  TriangleMesh extended_mesh = clipper._mesh;
+  PMP::stitch_borders(extended_mesh);
+
+  std::map<TriangleMesh::Vertex_index, TriangleMesh::Vertex_index> skirt_vertex;
+  for (auto &[v, dir_sum] : outward_sum)
+  {
+    const double len = std::sqrt(dir_sum.squared_length());
+    if (len < 1e-10) continue;
+    const Vector dir = dir_sum / len;
+    const Point &p = extended_mesh.point(v);
+    skirt_vertex[v] = extended_mesh.add_vertex(
+        Point(p.x() + target_diag * dir.x(),
+              p.y() + target_diag * dir.y(),
+              p.z() + target_diag * dir.z()));
+  }
+
+  for (auto he : clipper._mesh.halfedges())
+  {
+    if (!clipper._mesh.is_border(he)) continue;
+    auto vs = clipper._mesh.source(he);
+    auto vt = clipper._mesh.target(he);
+    if (!skirt_vertex.count(vs) || !skirt_vertex.count(vt)) continue;
+    auto vs_new = skirt_vertex[vs];
+    auto vt_new = skirt_vertex[vt];
+    extended_mesh.add_face(vs, vt, vt_new);
+    extended_mesh.add_face(vs, vt_new, vs_new);
+  }
+
+  if (LoopCGAL::verbose)
+    std::cout << "  cutWithSurface: added skirt of "
+              << skirt_vertex.size() << " new vertices over target_diag="
+              << target_diag << "\n";
+
+  TriMesh scaled_clipper(std::move(extended_mesh));
+
+  const int faces_before = static_cast<int>(_mesh.number_of_faces());
+
+  bool intersection = PMP::do_intersect(_mesh, scaled_clipper._mesh);
   if (intersection)
   {
     // Clip tm with clipper
@@ -337,21 +433,18 @@ void TriMesh::cutWithSurface(TriMesh &clipper,
 
     try
     {
-      // bool flag =
-      //     PMP::clip(_mesh, clipper._mesh, CGAL::parameters::clip_volume(false));
       bool flag = false;
       try
       {
         if (use_exact_kernel){
-          Exact_Mesh exact_clipper = convert_to_exact(clipper);
+          Exact_Mesh exact_clipper = convert_to_exact(scaled_clipper);
           Exact_Mesh exact_mesh = convert_to_exact(*this);
           flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
-        set_mesh(convert_to_double_mesh(exact_mesh));
+          set_mesh(convert_to_double_mesh(exact_mesh));
         }
         else{
-          flag = PMP::clip(_mesh, clipper._mesh, CGAL::parameters::clip_volume(false));
+          flag = PMP::clip(_mesh, scaled_clipper._mesh, CGAL::parameters::clip_volume(false));
         }
-        
       }
       catch (const std::exception &e)
       {
@@ -384,6 +477,15 @@ void TriMesh::cutWithSurface(TriMesh &clipper,
                 << std::endl;
     }
   }
+
+  const int faces_after = static_cast<int>(_mesh.number_of_faces());
+  if (faces_after >= faces_before && LoopCGAL::verbose)
+  {
+    std::cerr << "Warning: cutWithSurface removed no faces (before="
+              << faces_before << ", after=" << faces_after
+              << "). Clipper may not extend beyond the mesh." << std::endl;
+  }
+  return faces_before - faces_after;
 }
 
 NumpyMesh TriMesh::save(double area_threshold,

@@ -28,8 +28,9 @@ public:
         TriMesh(const pybind11::array_t<double> &vertices,
                 const pybind11::array_t<int> &triangles);
 
-        // Method to cut the mesh with another surface object
-        void cutWithSurface(TriMesh &surface, 
+        // Method to cut the mesh with another surface object.
+        // Returns the number of faces removed (0 = no-op / bad cut).
+        int cutWithSurface(TriMesh &surface,
                             bool preserve_intersection = false,
                             bool preserve_intersection_clipper = false,
                             bool use_exact_kernel = true);
@@ -47,6 +48,9 @@ public:
         const TriangleMesh& get_mesh() const { return _mesh; }
         void set_mesh(const TriangleMesh& mesh) { _mesh = mesh; }
 private:
+        // Internal constructor used by cutWithSurface to wrap a scaled copy.
+        explicit TriMesh(TriangleMesh m) : _mesh(std::move(m)) { init(); }
+
         std::set<TriangleMesh::Edge_index> _fixedEdges;
         TriangleMesh _mesh; // The underlying CGAL surface mesh
         CGAL::Boolean_property_map<std::set<TriangleMesh::Edge_index>>
