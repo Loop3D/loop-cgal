@@ -60,6 +60,173 @@ def test_remesh_changes_vertices(square_surface, kwargs):
     # assert after_v >= 0.5 * before_v
 
 
+def _make_curved_clipper(x_offset: float, y_half: float, z_top: float, z_bot: float, n: int = 6) -> pv.PolyData:
+    """Build a curved (listric) clipper surface that bows in the X direction.
+
+    The surface lies roughly in the YZ plane at x=x_offset but curves so that
+    deeper vertices are offset further in X.  This simulates a listric fault
+    being used as a clipper.
+    """
+    ys = np.linspace(-y_half, y_half, n)
+    zs = np.linspace(z_top, z_bot, n)
+    verts = []
+    for z in zs:
+        # curvature: bow increases with depth (small enough that cut stays within 50 m of X=0)
+        # The deepest target vertex is at z=-7000; max x-deviation = c * 7000 < tol=50 m → c < 0.007
+        curve = x_offset + 0.005 * (z - z_top)
+        for y in ys:
+            verts.append([curve, y, z])
+    verts = np.array(verts, dtype=float)
+    faces = []
+    for iz in range(n - 1):
+        for iy in range(n - 1):
+            i0 = iz * n + iy
+            i1 = i0 + 1
+            i2 = i0 + n
+            i3 = i2 + 1
+            faces.extend([[3, i0, i1, i3], [3, i0, i3, i2]])
+    faces = np.array(faces).flatten()
+    return pv.PolyData(verts, faces)
+
+
+@pytest.mark.parametrize("clipper_factory,label", [
+    (
+        # Planar clipper: YZ plane at X=0, far smaller than the 4 km deep target
+        lambda: pv.Plane(
+            center=(0.0, 0.0, -250.0),
+            direction=(1.0, 0.0, 0.0),
+            i_size=500.0,
+            j_size=500.0,
+            i_resolution=4,
+            j_resolution=4,
+        ).triangulate(),
+        "planar",
+    ),
+    (
+        # Curved (listric) clipper: also smaller than the target, bows in X with depth
+        lambda: _make_curved_clipper(x_offset=0.0, y_half=250.0, z_top=0.0, z_bot=-500.0),
+        "curved",
+    ),
+])
+def test_no_bridge_when_clipper_shorter_than_target(clipper_factory, label):
+    """Clipper that doesn't extend fully through the target must not leave a bridge.
+
+    Setup
+    -----
+    Target  : vertical fault surface in the XZ plane (Y=0), 10 km wide × 4 km deep.
+    Clipper : either a planar or curved (listric) surface at X≈0, only 500 m deep
+              — far smaller than the 4 km depth of the target.
+
+    Without the fix, the lower portion (Z < -500 m) is left as a bridge.  With
+    boundary extension, the clipper rim is pushed out to cover the full target so
+    the result must lie entirely on one side of X=0.  The interior vertices of the
+    clipper are unchanged, so the cut location is preserved for both planar and
+    curved cases.
+    """
+    # Large vertical fault in XZ plane (Y=0): 10 km wide, 4 km deep.
+    target_pv = pv.Plane(
+        center=(0.0, 0.0, -2000.0),
+        direction=(0.0, 1.0, 0.0),
+        i_size=10000.0,
+        j_size=4000.0,
+        i_resolution=20,
+        j_resolution=8,
+    ).triangulate()
+
+    target = loop_cgal.TriMesh(target_pv)
+    clipper = loop_cgal.TriMesh(clipper_factory())
+
+    faces_removed = target.cut_with_surface(clipper)
+    result = target.to_pyvista()
+
+    assert result.n_points > 0, f"[{label}] Clip removed the entire mesh"
+    assert faces_removed > 0, f"[{label}] Clip was a no-op — meshes may not intersect"
+
+    # After a clean cut at X≈0, all remaining vertices must be on ONE side.
+    # A bridge would leave vertices significantly on both sides.
+    xs = result.points[:, 0]
+    tol = 50.0  # 50 m tolerance for vertices exactly on the cut boundary
+    on_positive = np.any(xs > tol)
+    on_negative = np.any(xs < -tol)
+    assert not (on_positive and on_negative), (
+        f"[{label}] Bridge detected: vertices span both sides of the cut plane "
+        f"(X range [{xs.min():.1f}, {xs.max():.1f}] m)."
+    )
+
+
+@pytest.mark.parametrize("collocate_target,collocate_clipper,label", [
+    (True,  False, "collocated_target"),
+    (False, True,  "collocated_clipper"),
+    (True,  True,  "collocated_both"),
+])
+def test_no_artefact_with_collocated_vertices(collocate_target, collocate_clipper, label):
+    """Collocated (duplicate) vertices must not cause bridges or a no-op clip.
+
+    Two failure modes are possible:
+    - Collocated vertices in the *target* create zero-area faces that can make
+      PMP::do_intersect return false, silently skipping the entire clip.
+    - Collocated vertices in the *clipper* create degenerate border faces whose
+      normals are near-zero, causing skirt edges to be skipped and leaving a
+      bridge gap at those positions.
+
+    Both are fixed by calling PMP::stitch_borders before clipping.
+    """
+    def _add_collocated_seam(pv_mesh: pv.PolyData) -> pv.PolyData:
+        """Duplicate a row of interior vertices along the mesh midline (Z=-2000).
+
+        The duplicate vertices are collocated with the originals but topologically
+        distinct, creating zero-area triangles along the seam.
+        """
+        pts = pv_mesh.points.copy()
+        # Find vertices near the midline (Z ≈ -2000)
+        seam = np.where(np.abs(pts[:, 2] + 2000.0) < 50.0)[0]
+        if len(seam) == 0:
+            return pv_mesh  # nothing to duplicate
+        extra = pts[seam].copy()  # exact same positions
+        new_pts = np.vstack([pts, extra])
+        return pv.PolyData(new_pts, pv_mesh.faces)
+
+    target_pv = pv.Plane(
+        center=(0.0, 0.0, -2000.0),
+        direction=(0.0, 1.0, 0.0),
+        i_size=10000.0,
+        j_size=4000.0,
+        i_resolution=20,
+        j_resolution=8,
+    ).triangulate()
+
+    clipper_pv = pv.Plane(
+        center=(0.0, 0.0, -250.0),
+        direction=(1.0, 0.0, 0.0),
+        i_size=500.0,
+        j_size=500.0,
+        i_resolution=4,
+        j_resolution=4,
+    ).triangulate()
+
+    if collocate_target:
+        target_pv = _add_collocated_seam(target_pv)
+    if collocate_clipper:
+        clipper_pv = _add_collocated_seam(clipper_pv)
+
+    target = loop_cgal.TriMesh(target_pv)
+    clipper = loop_cgal.TriMesh(clipper_pv)
+
+    faces_removed = target.cut_with_surface(clipper)
+    result = target.to_pyvista()
+
+    assert result.n_points > 0, f"[{label}] Clip removed the entire mesh"
+    assert faces_removed > 0, f"[{label}] Clip was a no-op (do_intersect likely wrong due to degenerate faces)"
+
+    xs = result.points[:, 0]
+    tol = 50.0
+    on_positive = np.any(xs > tol)
+    on_negative = np.any(xs < -tol)
+    assert not (on_positive and on_negative), (
+        f"[{label}] Bridge detected: X range [{xs.min():.1f}, {xs.max():.1f}] m"
+    )
+
+
 def test_cut_with_implicit_function(square_surface):
     tm = loop_cgal.TriMesh(square_surface)
     # create a scalar property that varies across vertices
