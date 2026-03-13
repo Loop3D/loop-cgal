@@ -8,7 +8,7 @@ Loop-cgal is a Python package for mesh processing operations using the  CGAL (Co
 - Current features:
     - clipping of 3D triangular surfaces
 - Future features:
-    - Marching cubes algorithm for isosurface extraction
+    - Marching cubes algorithm for isosurface extraction 
     - Boolean operations on marching cube meshes.
 
 ## Installation
