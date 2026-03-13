@@ -25,7 +25,9 @@ PYBIND11_MODULE(_loop_cgal, m)
          .def("cut_with_surface", &TriMesh::cutWithSurface, py::arg("surface"),
               py::arg("preserve_intersection") = false,
               py::arg("preserve_intersection_clipper") = false,
-              py::arg("use_exact_kernel") = true)
+              py::arg("use_exact_kernel") = true,
+              "Cut mesh with a clipper surface. Returns the number of faces removed "
+              "(0 indicates the clipper did not intersect or did not extend beyond the mesh).")
          .def("remesh", &TriMesh::remesh, py::arg("split_long_edges") = true,
               py::arg("target_edge_length") = 10.0,
               py::arg("number_of_iterations") = 3,
