@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/Loop3D/loop-cgal/compare/v0.1.6...v0.1.7) (2026-03-13)
+
+
+### Bug Fixes
+
+* bump version ([b0cf630](https://github.com/Loop3D/loop-cgal/commit/b0cf63084aea34524a25360e1050c7f95d711ba8))
+
 ## [0.1.6](https://github.com/Loop3D/loop-cgal/compare/v0.1.5...v0.1.6) (2025-11-04)
 
 
