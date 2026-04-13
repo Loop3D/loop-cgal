@@ -1,6 +1,8 @@
 import pyvista as pv
 import numpy as np
 import scipy.sparse as sp
+
+
 def validate_pyvista_polydata(
     surface: pv.PolyData, surface_name: str = "surface"
 ) -> None:
@@ -80,18 +82,9 @@ def validate_vertices_and_faces(verts, faces):
     # build a ntris x nverts matrix
     # populate with true for vertex in each triangle
     # sum rows and if not equal to 3 then it is degenerate
-    face_idx = np.arange(faces.shape[0])
-    face_idx = np.tile(face_idx, (3, 1)).T.flatten()
-    faces_flat = faces.flatten()
-    m = sp.coo_matrix(
-        (np.ones(faces_flat.shape[0]), (faces_flat, face_idx)),
-        shape=(verts.shape[0], faces.shape[0]),
-        dtype=bool,
-    )
-    # coo duplicates entries so just make sure its boolean
-    m = m > 0
-    if not np.all(m.sum(axis=0) == 3):
-        degen_idx = np.where(m.sum(axis=0) != 3)[1]
+    a, b, c = faces[:, 0], faces[:, 1], faces[:, 2]
+    if np.any((a == b) | (b == c) | (a == c)):
+        degen_idx = np.where((a == b) | (b == c) | (a == c))
         raise ValueError(
             f"Surface contains degenerate triangles: {degen_idx} (each triangle must have exactly 3 vertices)"
         )

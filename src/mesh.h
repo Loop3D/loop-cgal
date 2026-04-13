@@ -28,12 +28,25 @@ public:
         TriMesh(const pybind11::array_t<double> &vertices,
                 const pybind11::array_t<int> &triangles);
 
+        // Move/copy constructors — must re-bind _edge_is_constrained_map after
+        // relocation, because it stores a raw pointer into _fixedEdges.
+        TriMesh(TriMesh&& other) noexcept;
+        TriMesh& operator=(TriMesh&& other) noexcept;
+        TriMesh(const TriMesh& other);
+        TriMesh& operator=(const TriMesh& other);
+
         // Method to cut the mesh with another surface object.
         // Returns the number of faces removed (0 = no-op / bad cut).
         int cutWithSurface(TriMesh &surface,
                             bool preserve_intersection = false,
                             bool preserve_intersection_clipper = false,
                             bool use_exact_kernel = true);
+
+        // Clip the mesh with a halfspace defined by the plane ax+by+cz+d=0.
+        // The negative side (ax+by+cz+d < 0) is kept.
+        // Returns the number of faces removed (0 = no-op / bad cut).
+        int clipWithPlane(double a, double b, double c, double d,
+                          bool use_exact_kernel = true);
 
         // Method to remesh the triangle mesh
         void remesh(bool split_long_edges,  double target_edge_length,
@@ -45,6 +58,14 @@ public:
         void reverseFaceOrientation();
         NumpyMesh save(double area_threshold, double duplicate_vertex_threshold);
         void add_fixed_edges(const pybind11::array_t<int> &pairs);
+        double area() const;
+        std::size_t n_faces() const;
+        std::size_t n_vertices() const;
+        pybind11::array_t<double> get_points() const;
+        bool overlaps(const TriMesh& other, double bbox_tol = 1e-6) const;
+        TriMesh clone() const;
+        void write_to_file(const std::string& path) const;
+        static TriMesh read_from_file(const std::string& path);
         const TriangleMesh& get_mesh() const { return _mesh; }
         void set_mesh(const TriangleMesh& mesh) { _mesh = mesh; }
 private:

@@ -1,10 +1,15 @@
 from __future__ import annotations
+import copy
 import numpy as np
 import pyvista as pv
 import pytest
 import loop_cgal
 from loop_cgal._loop_cgal import ImplicitCutMode
 
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def square_surface():
@@ -16,6 +21,180 @@ def square_surface():
 def clipper_surface():
     # A square that overlaps half of the unit square
     return pv.Plane(center=(0,0,0),direction=(1,0,0),i_size=2.0,j_size=2.0)
+
+
+@pytest.fixture
+def unit_trimesh():
+    """TriMesh built from a known 1×1 unit square."""
+    return loop_cgal.TriMesh(pv.Plane(center=(0, 0, 0), direction=(0, 0, 1), i_size=1.0, j_size=1.0))
+
+
+# ---------------------------------------------------------------------------
+# Properties: area, points, n_cells, n_points
+# ---------------------------------------------------------------------------
+
+def test_area_unit_square(unit_trimesh):
+    """area property should return the surface area directly from CGAL."""
+    assert abs(unit_trimesh.area - 1.0) < 1e-6
+
+
+def test_points_shape(unit_trimesh):
+    """points property returns (n, 3) float array."""
+    pts = unit_trimesh.points
+    assert isinstance(pts, np.ndarray)
+    assert pts.ndim == 2
+    assert pts.shape[1] == 3
+    assert pts.shape[0] == unit_trimesh.n_points
+
+
+def test_n_cells_positive(unit_trimesh):
+    """n_cells should equal the number of triangles (≥1)."""
+    assert unit_trimesh.n_cells > 0
+    saved_tris = np.array(unit_trimesh.save().triangles)
+    assert unit_trimesh.n_cells == saved_tris.shape[0]
+
+
+def test_n_points_positive(unit_trimesh):
+    """n_points should equal the number of vertices (≥3)."""
+    assert unit_trimesh.n_points >= 3
+    saved_verts = np.array(unit_trimesh.save().vertices)
+    assert unit_trimesh.n_points == saved_verts.shape[0]
+
+
+def test_n_cells_and_n_points_consistent(unit_trimesh):
+    """n_cells and n_points should both report non-zero consistent values."""
+    assert unit_trimesh.n_cells > 0
+    assert unit_trimesh.n_points > 0
+
+
+# ---------------------------------------------------------------------------
+# Constructors: from_vertices_and_triangles, get_vertices_and_triangles
+# ---------------------------------------------------------------------------
+
+def test_from_vertices_and_triangles_roundtrip():
+    """from_vertices_and_triangles should produce an equivalent mesh."""
+    surface = pv.Plane(center=(0, 0, 0), direction=(0, 0, 1), i_size=2.0, j_size=2.0)
+    original = loop_cgal.TriMesh(surface)
+    verts, tris = original.get_vertices_and_triangles()
+
+    rebuilt = loop_cgal.TriMesh.from_vertices_and_triangles(verts, tris)
+
+    assert rebuilt.n_cells == original.n_cells
+    assert rebuilt.n_points == original.n_points
+    assert abs(rebuilt.area - original.area) < 1e-6
+
+
+def test_from_vertices_and_triangles_rejects_invalid():
+    """from_vertices_and_triangles should raise ValueError for bad input."""
+    with pytest.raises((ValueError, Exception)):
+        loop_cgal.TriMesh.from_vertices_and_triangles(
+            np.zeros((2, 3)),  # only 2 vertices — can't form a triangle
+            np.array([[0, 1, 2]]),
+        )
+
+
+def test_get_vertices_and_triangles_shapes(unit_trimesh):
+    """get_vertices_and_triangles returns correctly shaped arrays."""
+    verts, tris = unit_trimesh.get_vertices_and_triangles()
+    assert verts.ndim == 2 and verts.shape[1] == 3
+    assert tris.ndim == 2 and tris.shape[1] == 3
+
+
+# ---------------------------------------------------------------------------
+# Conversions: to_pyvista, vtk
+# ---------------------------------------------------------------------------
+
+def test_to_pyvista_returns_polydata(unit_trimesh):
+    pv_mesh = unit_trimesh.to_pyvista()
+    assert isinstance(pv_mesh, pv.PolyData)
+    assert pv_mesh.n_points > 0
+    assert pv_mesh.n_cells > 0
+
+
+def test_vtk_alias_matches_to_pyvista(unit_trimesh):
+    """vtk() is an alias for to_pyvista() and must return identical geometry."""
+    via_to_pyvista = unit_trimesh.to_pyvista()
+    via_vtk = unit_trimesh.vtk()
+    np.testing.assert_array_equal(via_to_pyvista.points, via_vtk.points)
+    np.testing.assert_array_equal(via_to_pyvista.faces, via_vtk.faces)
+
+
+# ---------------------------------------------------------------------------
+# Deep copy: clone, copy, __copy__, __deepcopy__
+# ---------------------------------------------------------------------------
+
+def test_clone_returns_trimesh(unit_trimesh):
+    cloned = unit_trimesh.clone()
+    assert isinstance(cloned, loop_cgal.TriMesh)
+
+
+def test_clone_has_same_geometry(unit_trimesh):
+    cloned = unit_trimesh.clone()
+    assert cloned.n_cells == unit_trimesh.n_cells
+    assert cloned.n_points == unit_trimesh.n_points
+    assert abs(cloned.area - unit_trimesh.area) < 1e-10
+
+
+def test_clone_is_independent(square_surface, clipper_surface):
+    """Mutating the clone must not affect the original."""
+    original = loop_cgal.TriMesh(square_surface)
+    cloned = original.clone()
+    n_cells_before = original.n_cells
+
+    clipper = loop_cgal.TriMesh(clipper_surface)
+    cloned.cut_with_surface(clipper)
+
+    assert original.n_cells == n_cells_before, "clone mutation leaked into original"
+
+
+def test_copy_method_returns_trimesh(unit_trimesh):
+    c = unit_trimesh.copy()
+    assert isinstance(c, loop_cgal.TriMesh)
+    assert c.n_cells == unit_trimesh.n_cells
+
+
+def test_copy_module_shallow(unit_trimesh):
+    """copy.copy() should use __copy__ and return an independent TriMesh."""
+    c = copy.copy(unit_trimesh)
+    assert isinstance(c, loop_cgal.TriMesh)
+    assert c.n_cells == unit_trimesh.n_cells
+
+
+def test_copy_module_deep(unit_trimesh):
+    """copy.deepcopy() should use __deepcopy__ and return an independent TriMesh."""
+    c = copy.deepcopy(unit_trimesh)
+    assert isinstance(c, loop_cgal.TriMesh)
+    assert c.n_cells == unit_trimesh.n_cells
+
+
+def test_deepcopy_is_independent(square_surface, clipper_surface):
+    """Mutating the deepcopy must not affect the original."""
+    original = loop_cgal.TriMesh(square_surface)
+    deep = copy.deepcopy(original)
+    n_cells_before = original.n_cells
+
+    clipper = loop_cgal.TriMesh(clipper_surface)
+    deep.cut_with_surface(clipper)
+
+    assert original.n_cells == n_cells_before, "deepcopy mutation leaked into original"
+
+
+# ---------------------------------------------------------------------------
+# overlaps
+# ---------------------------------------------------------------------------
+
+def test_overlaps_intersecting():
+    """Two overlapping planes should report overlaps=True."""
+    a = loop_cgal.TriMesh(pv.Plane(center=(0, 0, 0), direction=(0, 0, 1), i_size=2.0, j_size=2.0))
+    b = loop_cgal.TriMesh(pv.Plane(center=(0, 0, 0), direction=(1, 0, 0), i_size=2.0, j_size=2.0))
+    assert a.overlaps(b)
+
+
+def test_overlaps_separated():
+    """Two well-separated meshes must not report overlap."""
+    a = loop_cgal.TriMesh(pv.Plane(center=(0, 0, 0), direction=(0, 0, 1), i_size=1.0, j_size=1.0))
+    b = loop_cgal.TriMesh(pv.Plane(center=(100, 0, 0), direction=(0, 0, 1), i_size=1.0, j_size=1.0))
+    assert not a.overlaps(b)
 
 
 # @pytest.mark.parametrize("remesh_kwargs", [
