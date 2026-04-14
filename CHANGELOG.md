@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8](https://github.com/Loop3D/loop-cgal/compare/v0.1.7...v0.1.8) (2026-04-14)
+
+
+### Bug Fixes
+
+* add clipWithPlane method for clipping with a plane ([a5f3440](https://github.com/Loop3D/loop-cgal/commit/a5f3440c51246ce12bb6a94b8054048c4c1b782b))
+* add clone method to create a new trimesh using cpp without export ([a5f3440](https://github.com/Loop3D/loop-cgal/commit/a5f3440c51246ce12bb6a94b8054048c4c1b782b))
+* add direct calls to geometry attributes e.g. area, points ([206cf2f](https://github.com/Loop3D/loop-cgal/commit/206cf2f739fb01f2c4ec63286e5b2fa1e2fb46e5))
+* add direct calls to geometry attributes e.g. area, points without requiring export to pyvista ([a5f3440](https://github.com/Loop3D/loop-cgal/commit/a5f3440c51246ce12bb6a94b8054048c4c1b782b))
+* add io methods exporting mesh to binary file ([a5f3440](https://github.com/Loop3D/loop-cgal/commit/a5f3440c51246ce12bb6a94b8054048c4c1b782b))
+* add overlaps method to calculate overlaps flag in cpp ([a5f3440](https://github.com/Loop3D/loop-cgal/commit/a5f3440c51246ce12bb6a94b8054048c4c1b782b))
+
 ## [0.1.7](https://github.com/Loop3D/loop-cgal/compare/v0.1.6...v0.1.7) (2026-03-13)
 
 
