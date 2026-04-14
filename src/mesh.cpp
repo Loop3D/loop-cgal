@@ -2,7 +2,12 @@
 #include "meshutils.h"
 #include "globals.h"
 #include "sizet.h"
+#include <fstream>
+#include <stdexcept>
+#include <unordered_map>
 #include <CGAL/Polygon_mesh_processing/bbox.h>
+#include <CGAL/Polygon_mesh_processing/measure.h>
+#include <CGAL/Polygon_mesh_processing/intersection.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
@@ -114,6 +119,42 @@ void TriMesh::init()
     std::cout << "Found " << _fixedEdges.size() << " fixed edges." << std::endl;
   }
   _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
+}
+
+// Move constructor: _edge_is_constrained_map stores a raw pointer into
+// _fixedEdges, so after relocating _fixedEdges we must re-bind the map.
+TriMesh::TriMesh(TriMesh&& other) noexcept
+    : _mesh(std::move(other._mesh))
+    , _fixedEdges(std::move(other._fixedEdges))
+    , _edge_is_constrained_map(CGAL::make_boolean_property_map(_fixedEdges))
+{}
+
+TriMesh& TriMesh::operator=(TriMesh&& other) noexcept
+{
+    if (this != &other) {
+        _mesh = std::move(other._mesh);
+        _fixedEdges = std::move(other._fixedEdges);
+        _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
+    }
+    return *this;
+}
+
+// Copy constructor: same issue — copy creates a new _fixedEdges at a new
+// address, so the property map must be re-bound to *this* object's set.
+TriMesh::TriMesh(const TriMesh& other)
+    : _mesh(other._mesh)
+    , _fixedEdges(other._fixedEdges)
+    , _edge_is_constrained_map(CGAL::make_boolean_property_map(_fixedEdges))
+{}
+
+TriMesh& TriMesh::operator=(const TriMesh& other)
+{
+    if (this != &other) {
+        _mesh = other._mesh;
+        _fixedEdges = other._fixedEdges;
+        _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
+    }
+    return *this;
 }
 
 void TriMesh::add_fixed_edges(const pybind11::array_t<int> &pairs)
@@ -348,46 +389,47 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
       CGAL::square(target_bb.ymax() - target_bb.ymin()) +
       CGAL::square(target_bb.zmax() - target_bb.zmin()));
 
-  // Pass 1: accumulate per-ver tex outward directions from each adjacent border face.
-  // For a border halfedge h (source→target), the outward direction is fn × d,
-  // where fn is the adjacent face normal and d is the normalised edge direction.
-  // This lies in the face's tangent plane and points away from its interior.
-  std::map<TriangleMesh::Vertex_index, Vector> outward_sum;
-  for (auto he : clipper._mesh.halfedges())
-  {
-    if (!clipper._mesh.is_border(he)) continue;
+  // Copy the clipper and stitch any collocated border vertices first.
+  // stitch_borders can remove/merge vertices, so all subsequent passes must
+  // operate on extended_mesh (not clipper._mesh) to keep vertex descriptors valid.
+  TriangleMesh extended_mesh = clipper._mesh;
+  PMP::stitch_borders(extended_mesh);
 
-    const Point &ps = clipper._mesh.point(clipper._mesh.source(he));
-    const Point &pt = clipper._mesh.point(clipper._mesh.target(he));
+  // Pass 1: accumulate per-vertex outward directions from each border halfedge
+  // in extended_mesh (post-stitch).  For a border halfedge h (source→target),
+  // the outward direction is fn × d, where fn is the adjacent face normal and
+  // d is the normalised edge direction.  This lies in the face's tangent plane
+  // and points away from the interior.
+  std::map<TriangleMesh::Vertex_index, Vector> outward_sum;
+  for (auto he : extended_mesh.halfedges())
+  {
+    if (!extended_mesh.is_border(he)) continue;
+
+    const Point &ps = extended_mesh.point(extended_mesh.source(he));
+    const Point &pt = extended_mesh.point(extended_mesh.target(he));
     Vector d = pt - ps;
     const double d_len = std::sqrt(d.squared_length());
     if (d_len < 1e-10) continue;
     d = d / d_len;
 
-    const auto adj_face = clipper._mesh.face(clipper._mesh.opposite(he));
-    const Vector fn = PMP::compute_face_normal(adj_face, clipper._mesh);
+    const auto adj_face = extended_mesh.face(extended_mesh.opposite(he));
+    const Vector fn = PMP::compute_face_normal(adj_face, extended_mesh);
     const Vector out = CGAL::cross_product(fn, d);
     const double out_len = std::sqrt(out.squared_length());
     if (out_len < 1e-10) continue;
 
-    auto vs = clipper._mesh.source(he);
-    auto vt = clipper._mesh.target(he);
+    auto vs = extended_mesh.source(he);
+    auto vt = extended_mesh.target(he);
     outward_sum.try_emplace(vs, 0.0, 0.0, 0.0);
     outward_sum.try_emplace(vt, 0.0, 0.0, 0.0);
     outward_sum[vs] = outward_sum[vs] + out / out_len;
     outward_sum[vt] = outward_sum[vt] + out / out_len;
   }
 
-  // Pass 2: copy the clipper, merge any collocated border vertices (they
-  // produce degenerate faces whose normals are near-zero, which would cause
-  // skirt edges to be silently skipped and leave bridge gaps), then add one
-  // new vertex per boundary vertex pushed outward by target_diag, and stitch
-  // a skirt quad (two triangles) per boundary edge.  The winding order
-  // (source, target, target_new) produces normals consistent with the
-  // adjacent interior face.
-  TriangleMesh extended_mesh = clipper._mesh;
-  PMP::stitch_borders(extended_mesh);
-
+  // Pass 2: add one new vertex per boundary vertex pushed outward by target_diag,
+  // and stitch a skirt quad (two triangles) per boundary edge of extended_mesh.
+  // The winding order (source, target, target_new) produces normals consistent
+  // with the adjacent interior face.
   std::map<TriangleMesh::Vertex_index, TriangleMesh::Vertex_index> skirt_vertex;
   for (auto &[v, dir_sum] : outward_sum)
   {
@@ -401,11 +443,11 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
               p.z() + target_diag * dir.z()));
   }
 
-  for (auto he : clipper._mesh.halfedges())
+  for (auto he : extended_mesh.halfedges())
   {
-    if (!clipper._mesh.is_border(he)) continue;
-    auto vs = clipper._mesh.source(he);
-    auto vt = clipper._mesh.target(he);
+    if (!extended_mesh.is_border(he)) continue;
+    auto vs = extended_mesh.source(he);
+    auto vt = extended_mesh.target(he);
     if (!skirt_vertex.count(vs) || !skirt_vertex.count(vt)) continue;
     auto vs_new = skirt_vertex[vs];
     auto vt_new = skirt_vertex[vt];
@@ -485,6 +527,51 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
               << faces_before << ", after=" << faces_after
               << "). Clipper may not extend beyond the mesh." << std::endl;
   }
+  return faces_before - faces_after;
+}
+
+int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exact_kernel)
+{
+  if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
+  {
+    std::cerr << "Error: Source mesh is empty!" << std::endl;
+    return 0;
+  }
+
+  const int faces_before = static_cast<int>(_mesh.number_of_faces());
+
+  try
+  {
+    if (use_exact_kernel)
+    {
+      Exact_K::Plane_3 plane(a, b, c, d);
+      Exact_Mesh exact = convert_to_exact(*this);
+      PMP::clip(exact, plane, CGAL::parameters::clip_volume(false));
+      set_mesh(convert_to_double_mesh(exact));
+    }
+    else
+    {
+      Plane plane(a, b, c, d);
+      PMP::clip(_mesh, plane, CGAL::parameters::clip_volume(false));
+    }
+  }
+  catch (const std::exception &e)
+  {
+    std::cerr << "Plane clip failed: " << e.what() << std::endl;
+  }
+
+  const int faces_after = static_cast<int>(_mesh.number_of_faces());
+  if (LoopCGAL::verbose && faces_after >= faces_before)
+  {
+    std::cerr << "Warning: clipWithPlane removed no faces (before="
+              << faces_before << ", after=" << faces_after << ")." << std::endl;
+  }
+  // Compact the mesh: PMP::clip marks removed elements as tombstones without
+  // freeing them.  Iterating _mesh.vertices() when has_garbage()==true requires
+  // scanning every tombstoned slot, so a mesh that has been clipped 6+ times
+  // can accumulate enough tombstones to make get_points() take seconds.
+  if (_mesh.has_garbage())
+    _mesh.collect_garbage();
   return faces_before - faces_after;
 }
 
@@ -804,4 +891,146 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
 
   // Replace internal mesh
   _mesh = std::move(newmesh);
+}
+
+double TriMesh::area() const
+{
+  return PMP::area(_mesh);
+}
+
+std::size_t TriMesh::n_faces() const
+{
+  return _mesh.number_of_faces();
+}
+
+std::size_t TriMesh::n_vertices() const
+{
+  return _mesh.number_of_vertices();
+}
+
+pybind11::array_t<double> TriMesh::get_points() const
+{
+  std::size_t n = _mesh.number_of_vertices();
+  pybind11::array_t<double> result({n, std::size_t(3)});
+  auto r = result.mutable_unchecked<2>();
+  std::size_t i = 0;
+  for (auto v : _mesh.vertices()) {
+    const auto& p = _mesh.point(v);
+    r(i, 0) = p.x();
+    r(i, 1) = p.y();
+    r(i, 2) = p.z();
+    ++i;
+  }
+  return result;
+}
+
+TriMesh TriMesh::clone() const
+{
+  TriMesh result(_mesh);  // copies _mesh via CGAL Surface_mesh copy-ctor, then init() sets border edges
+  // Overwrite with the full fixed-edge set (border edges + any user-added edges).
+  // CGAL Surface_mesh indices are integer handles and remain valid across copies of the same topology.
+  result._fixedEdges = _fixedEdges;
+  result._edge_is_constrained_map = CGAL::make_boolean_property_map(result._fixedEdges);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Native binary file I/O — avoids the pyvista round-trip for temp files.
+//
+// Format (little-endian, no padding):
+//   [6 bytes]  magic "LCMESH"
+//   [4 bytes]  n_vertices  (uint32)
+//   [4 bytes]  n_faces     (uint32)
+//   [nv×24]    vertices    (3 × float64 each: x, y, z)
+//   [nf×12]    faces       (3 × uint32  each: i0, i1, i2)
+// ---------------------------------------------------------------------------
+void TriMesh::write_to_file(const std::string& path) const
+{
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        throw std::runtime_error("TriMesh::write_to_file — cannot open: " + path);
+
+    // Build a compact vertex index map (mesh may have tombstoned entries
+    // left by CGAL operations that have not been garbage-collected yet).
+    std::vector<TriangleMesh::Vertex_index> valid_verts;
+    std::unordered_map<uint32_t, uint32_t> vmap;
+    valid_verts.reserve(_mesh.number_of_vertices());
+    vmap.reserve(_mesh.number_of_vertices());
+    for (auto v : _mesh.vertices()) {
+        vmap[static_cast<uint32_t>(v.idx())] =
+            static_cast<uint32_t>(valid_verts.size());
+        valid_verts.push_back(v);
+    }
+
+    uint32_t nv = static_cast<uint32_t>(valid_verts.size());
+    uint32_t nf = static_cast<uint32_t>(_mesh.number_of_faces());
+
+    out.write("LCMESH", 6);
+    out.write(reinterpret_cast<const char*>(&nv), 4);
+    out.write(reinterpret_cast<const char*>(&nf), 4);
+
+    for (auto v : valid_verts) {
+        const auto& p = _mesh.point(v);
+        double x = p.x(), y = p.y(), z = p.z();
+        out.write(reinterpret_cast<const char*>(&x), 8);
+        out.write(reinterpret_cast<const char*>(&y), 8);
+        out.write(reinterpret_cast<const char*>(&z), 8);
+    }
+
+    for (auto f : _mesh.faces()) {
+        auto h = _mesh.halfedge(f);
+        for (int i = 0; i < 3; ++i) {
+            uint32_t idx = vmap.at(static_cast<uint32_t>(_mesh.target(h).idx()));
+            out.write(reinterpret_cast<const char*>(&idx), 4);
+            h = _mesh.next(h);
+        }
+    }
+}
+
+TriMesh TriMesh::read_from_file(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        throw std::runtime_error("TriMesh::read_from_file — cannot open: " + path);
+
+    char magic[6];
+    in.read(magic, 6);
+    if (std::string(magic, 6) != "LCMESH")
+        throw std::runtime_error("TriMesh::read_from_file — bad magic in: " + path);
+
+    uint32_t nv, nf;
+    in.read(reinterpret_cast<char*>(&nv), 4);
+    in.read(reinterpret_cast<char*>(&nf), 4);
+
+    TriangleMesh mesh;
+    std::vector<TriangleMesh::Vertex_index> verts(nv);
+    for (uint32_t i = 0; i < nv; ++i) {
+        double x, y, z;
+        in.read(reinterpret_cast<char*>(&x), 8);
+        in.read(reinterpret_cast<char*>(&y), 8);
+        in.read(reinterpret_cast<char*>(&z), 8);
+        verts[i] = mesh.add_vertex(Point(x, y, z));
+    }
+
+    for (uint32_t i = 0; i < nf; ++i) {
+        uint32_t i0, i1, i2;
+        in.read(reinterpret_cast<char*>(&i0), 4);
+        in.read(reinterpret_cast<char*>(&i1), 4);
+        in.read(reinterpret_cast<char*>(&i2), 4);
+        mesh.add_face(verts[i0], verts[i1], verts[i2]);
+    }
+
+    return TriMesh(std::move(mesh));   // private ctor calls init() → border edges
+}
+
+bool TriMesh::overlaps(const TriMesh& other, double bbox_tol) const
+{
+  CGAL::Bbox_3 b1 = PMP::bbox(_mesh);
+  CGAL::Bbox_3 b2 = PMP::bbox(other._mesh);
+  if (b1.xmax() < b2.xmin() - bbox_tol || b2.xmax() < b1.xmin() - bbox_tol ||
+      b1.ymax() < b2.ymin() - bbox_tol || b2.ymax() < b1.ymin() - bbox_tol ||
+      b1.zmax() < b2.zmin() - bbox_tol || b2.zmax() < b1.zmin() - bbox_tol) {
+    return false;
+  }
+  return PMP::do_intersect(_mesh, other._mesh);
 }
