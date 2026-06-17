@@ -41,17 +41,20 @@ jobs:
       - if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'     
         run: | 
           brew install cgal
-      # Cache vcpkg on Windows
+      # Cache vcpkg artifacts on Windows to avoid rebuilding dependencies every run
       - name: Restore vcpkg cache
         if: runner.os == 'Windows'
         id: cache-vcpkg
         uses: actions/cache@v4
         with:
           path: |
-            C:/vcpkg
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+            C:/vcpkg/installed
+            C:/vcpkg/packages
+            C:/vcpkg/downloads
+            C:/vcpkg/buildtrees
+          key: vcpkg-${{ runner.os }}-x64-windows-cgal-${{ hashFiles('.github/workflows/pypi.yml', 'CMakeLists.txt', 'pyproject.toml') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-
+            vcpkg-${{ runner.os }}-x64-windows-cgal-
 
       - name: Install vcpkg dependencies (Windows only)
         if: runner.os == 'Windows'
@@ -60,11 +63,13 @@ jobs:
           $Env:VCPKG_ROOT = "C:/vcpkg"
           if (!(Test-Path $Env:VCPKG_ROOT)) {
               git clone https://github.com/microsoft/vcpkg $Env:VCPKG_ROOT
-              & "$Env:VCPKG_ROOT/bootstrap-vcpkg.bat"
           }
-           # Only install if packages are missing
-          if (!(Test-Path "$Env:VCPKG_ROOT/installed/x64-windows/cgal")) {
-              & "$Env:VCPKG_ROOT/vcpkg.exe" install cgal
+          if (!(Test-Path "$Env:VCPKG_ROOT/vcpkg.exe")) {
+            & "$Env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+          }
+          # Only install if CGAL is missing for the target triplet
+          if (!(Test-Path "$Env:VCPKG_ROOT/installed/x64-windows/share/cgal")) {
+            & "$Env:VCPKG_ROOT/vcpkg.exe" install cgal --triplet x64-windows
           }
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
           # now inject your extra CMake flags:
