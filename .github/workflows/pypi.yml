@@ -64,7 +64,7 @@ jobs:
           }
            # Only install if packages are missing
           if (!(Test-Path "$Env:VCPKG_ROOT/installed/x64-windows/cgal")) {
-              & "$Env:VCPKG_ROOT/vcpkg.exe" install yasm-tool cgal
+              & "$Env:VCPKG_ROOT/vcpkg.exe" install cgal
           }
           echo "VCPKG_ROOT=$Env:VCPKG_ROOT" >> $Env:GITHUB_ENV
           # now inject your extra CMake flags:
