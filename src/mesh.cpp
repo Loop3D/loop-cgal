@@ -215,20 +215,18 @@ void TriMesh::add_fixed_edges(const pybind11::array_t<int> &pairs)
 
   for (ssize_t i = 0; i < pairs_buf.shape(0); ++i)
   {
-    TriangleMesh::Vertex_index v0 = TriangleMesh::Vertex_index(pairs_buf(i, 1));
-    TriangleMesh::Vertex_index v1 = TriangleMesh::Vertex_index(pairs_buf(i, 0));
+    TriangleMesh::Vertex_index v0 = TriangleMesh::Vertex_index(pairs_buf(i, 0));
+    TriangleMesh::Vertex_index v1 = TriangleMesh::Vertex_index(pairs_buf(i, 1));
     if (!_mesh.is_valid(v0) || !_mesh.is_valid(v1))
     {
       std::cerr << "Invalid vertex indices: (" << v0 << ", " << v1 << ")"
                 << std::endl;
       continue; // Skip invalid vertex pairs
     }
-    TriangleMesh::Halfedge_index edge =
-        _mesh.halfedge(TriangleMesh::Vertex_index(pairs_buf(i, 0)),
-                       TriangleMesh::Vertex_index(pairs_buf(i, 1)));
+    TriangleMesh::Halfedge_index edge = _mesh.halfedge(v0, v1);
     if (edge == TriangleMesh::null_halfedge())
     {
-      std::cerr << "Half-edge is null for vertices (" << v1 << ", " << v0 << ")"
+      std::cerr << "Half-edge is null for vertices (" << v0 << ", " << v1 << ")"
                 << std::endl;
       continue;
     }
