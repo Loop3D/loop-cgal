@@ -728,6 +728,13 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
   std::cout << "Mesh has " << _mesh.number_of_vertices() << " vertices and "
             << _mesh.number_of_faces() << " faces." << std::endl;
   std::cout << "Property size: " << property.size() << std::endl;
+  // Compact first: vertex_properties/property are indexed by vertex.idx(), and a
+  // mesh carrying tombstoned vertices (garbage from a prior clip) has idx() values
+  // that exceed number_of_vertices() — indexing the property arrays with them
+  // would read/write out of bounds. After collect_garbage() live vertices are
+  // renumbered 0..n-1 contiguously, so idx() is always in range.
+  if (_mesh.has_garbage())
+    _mesh.collect_garbage();
   if (property.size() != _mesh.number_of_vertices())
   {
     std::cerr << "Error: Property size does not match number of vertices." << std::endl;
