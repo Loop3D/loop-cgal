@@ -95,11 +95,6 @@ TriMesh::TriMesh(const pybind11::array_t<double> &vertices,
 
     _mesh.add_face(vertex_indices[v0], vertex_indices[v1], vertex_indices[v2]);
   }
-  for (ssize_t i = 0; i < tris.shape(0); ++i)
-  {
-    _mesh.add_face(vertex_indices[tris(i, 0)], vertex_indices[tris(i, 1)],
-                   vertex_indices[tris(i, 2)]);
-  }
   if (LoopCGAL::verbose)
   {
     std::cout << "Loaded mesh with " << _mesh.number_of_vertices()
