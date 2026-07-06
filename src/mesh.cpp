@@ -724,10 +724,13 @@ NumpyMesh TriMesh::save(double area_threshold,
 
 void TriMesh::cut_with_implicit_function(const std::vector<double> &property, double value, ImplicitCutMode cutmode, double snap_tol)
 {
-  std::cout << "Cutting mesh with implicit function at value " << value << std::endl;
-  std::cout << "Mesh has " << _mesh.number_of_vertices() << " vertices and "
-            << _mesh.number_of_faces() << " faces." << std::endl;
-  std::cout << "Property size: " << property.size() << std::endl;
+  if (LoopCGAL::verbose)
+  {
+    std::cout << "Cutting mesh with implicit function at value " << value << std::endl;
+    std::cout << "Mesh has " << _mesh.number_of_vertices() << " vertices and "
+              << _mesh.number_of_faces() << " faces." << std::endl;
+    std::cout << "Property size: " << property.size() << std::endl;
+  }
   // Compact first: vertex_properties/property are indexed by vertex.idx(), and a
   // mesh carrying tombstoned vertices (garbage from a prior clip) has idx() values
   // that exceed number_of_vertices() — indexing the property arrays with them
