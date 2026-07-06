@@ -9,11 +9,10 @@ the *same* set of vertices along that line.
 Two crossing grids are used: ``A`` lies in the z=0 plane, ``B`` in the y=0
 plane, so their intersection is the segment y=0, z=0 parametrised by x.
 
-Note: only the default exact-kernel path is exercised. ``use_exact_kernel=False``
-runs CGAL corefinement on the inexact kernel, which hard-crashes (SIGBUS) on
-these open surfaces — see ``test_corefine_inexact_kernel_is_unsafe`` below. A
-native crash cannot be trapped by ``xfail`` (it takes down the whole pytest
-process), so that path is documented and skipped rather than executed.
+Note: only the default exact-kernel path performs a corefinement. Corefinement
+on the inexact kernel (Simple_cartesian) hard-crashes (SIGBUS), so
+``use_exact_kernel=False`` is refused up front with a ValueError — see
+``test_corefine_inexact_kernel_raises``.
 """
 from __future__ import annotations
 
@@ -103,11 +102,13 @@ def test_corefine_preserves_area():
     assert B.area == pytest.approx(area_b, rel=1e-6)
 
 
-@pytest.mark.skip(
-    reason="corefine(use_exact_kernel=False) hard-crashes (SIGBUS) on open "
-    "intersecting surfaces; a native crash would take down the pytest process. "
-    "Tracked separately — the inexact path needs input validation or removal."
-)
-def test_corefine_inexact_kernel_is_unsafe():
+def test_corefine_inexact_kernel_raises():
+    """corefine(use_exact_kernel=False) must raise, not crash.
+
+    Corefinement on the inexact predicate kernel (Simple_cartesian) hard-crashes
+    (SIGBUS) even on trivial valid inputs, so the inexact path is refused up
+    front with a catchable ValueError rather than run.
+    """
     A, B = _crossing_pair()
-    A.corefine(B, use_exact_kernel=False)
+    with pytest.raises(ValueError, match="exact kernel"):
+        A.corefine(B, use_exact_kernel=False)

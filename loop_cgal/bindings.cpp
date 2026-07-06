@@ -37,7 +37,9 @@ PYBIND11_MODULE(_loop_cgal, m)
               "polyline into BOTH meshes in place. After the call the two meshes "
               "carry coincident vertices/edges along the intersection curve, so "
               "patches taken from each side stitch together watertight. "
-              "Returns the number of vertices added to this mesh.")
+              "Returns the number of vertices added to this mesh. "
+              "Only the exact kernel is supported; use_exact_kernel=False raises "
+              "ValueError (inexact-kernel corefinement crashes).")
          .def("cut_with_surface", &TriMesh::cutWithSurface, py::arg("surface"),
               py::arg("preserve_intersection") = false,
               py::arg("preserve_intersection_clipper") = false,

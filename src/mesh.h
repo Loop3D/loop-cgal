@@ -54,6 +54,9 @@ public:
         // taken from each (e.g. a contact cut by a fault and the matching fault
         // patch) stitch together watertight. Both meshes are mutated in place.
         // Returns the number of vertices added to this mesh by the corefinement.
+        // Only the exact kernel is supported: use_exact_kernel=false throws
+        // std::invalid_argument, because corefinement on the inexact predicate
+        // kernel (Simple_cartesian) crashes rather than merely misbehaving.
         int corefine(TriMesh &other, bool use_exact_kernel = true);
 
         // Method to remesh the triangle mesh

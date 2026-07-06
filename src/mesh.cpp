@@ -387,31 +387,22 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
     std::cout << "Cutting mesh with surface." << std::endl;
   }
 
-  // Validate input meshes
-  if (!CGAL::is_valid_polygon_mesh(_mesh, LoopCGAL::verbose))
-  {
-    std::cerr << "Error: Source mesh is invalid!" << std::endl;
-    return 0;
-  }
-
-  if (!CGAL::is_valid_polygon_mesh(clipper._mesh, LoopCGAL::verbose))
-  {
-    std::cerr << "Error: Clipper mesh is invalid!" << std::endl;
-    return 0;
-  }
-
+  // Validate input meshes. A bad or empty input is a programming error, not a
+  // legitimate no-op, so raise rather than return 0 (which is reserved for the
+  // meshes-don't-intersect case below). pybind11 maps invalid_argument ->
+  // Python ValueError.
   if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
-  {
-    std::cerr << "Error: Source mesh is empty!" << std::endl;
-    return 0;
-  }
+    throw std::invalid_argument("cutWithSurface: source mesh is empty");
 
   if (clipper._mesh.number_of_vertices() == 0 ||
       clipper._mesh.number_of_faces() == 0)
-  {
-    std::cerr << "Error: Clipper mesh is empty!" << std::endl;
-    return 0;
-  }
+    throw std::invalid_argument("cutWithSurface: clipper mesh is empty");
+
+  if (!CGAL::is_valid_polygon_mesh(_mesh, LoopCGAL::verbose))
+    throw std::invalid_argument("cutWithSurface: source mesh is not a valid polygon mesh");
+
+  if (!CGAL::is_valid_polygon_mesh(clipper._mesh, LoopCGAL::verbose))
+    throw std::invalid_argument("cutWithSurface: clipper mesh is not a valid polygon mesh");
 
   // Merge any collocated border vertices on the target before clipping.
   // Collocated vertices produce zero-area faces whose degenerate bounding boxes
@@ -558,13 +549,16 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
     }
     catch (const std::exception &e)
     {
-      std::cerr << "Error during clipping: " << e.what() << std::endl;
+      // The meshes intersect, so the clip was expected to succeed — a thrown
+      // exception here is a real failure, not a no-op. Rethrow with context
+      // (pybind11 maps runtime_error -> Python RuntimeError).
+      throw std::runtime_error(std::string("cutWithSurface: clip failed: ") + e.what());
     }
+    // The meshes intersect but PMP::clip reported failure — surface it rather
+    // than silently returning 0 (which callers read as "no intersection").
     if (!flag)
-    {
-      std::cerr << "Warning: Clipping operation failed." << std::endl;
-    }
-    else if (LoopCGAL::verbose)
+      throw std::runtime_error("cutWithSurface: clip of intersecting meshes failed");
+    if (LoopCGAL::verbose)
     {
       std::cout << "Clipping successful. Result has "
                 << _mesh.number_of_vertices() << " vertices and "
@@ -573,6 +567,7 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
   }
   else
   {
+    // Legitimate no-op: nothing to cut. Return 0 (see faces_before-faces_after).
     if (LoopCGAL::verbose)
     {
       std::cout << "Meshes do not intersect. No clipping performed."
@@ -592,11 +587,21 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
 
 int TriMesh::corefine(TriMesh &other, bool use_exact_kernel)
 {
+  // The inexact kernel path is unsafe by construction: TriangleMesh uses
+  // Simple_cartesian<double>, whose predicates are inexact, and CGAL
+  // corefinement requires exact predicates to make consistent branching
+  // decisions. On Simple_cartesian it does not merely give a wrong result — it
+  // hard-crashes (SIGBUS) even on trivial valid inputs, which no try/catch can
+  // trap. Refuse it up front with a catchable error instead. The exact path
+  // converts to the EPECK Exact_Mesh, which is safe.
+  if (!use_exact_kernel)
+    throw std::invalid_argument(
+        "corefine requires the exact kernel; use_exact_kernel=False is unsafe "
+        "with the inexact predicate kernel and crashes. Call with "
+        "use_exact_kernel=True (the default).");
+
   if (_mesh.number_of_faces() == 0 || other._mesh.number_of_faces() == 0)
-  {
-    std::cerr << "Error: corefine called on an empty mesh." << std::endl;
-    return 0;
-  }
+    throw std::invalid_argument("corefine: called on an empty mesh");
 
   // Merge collocated border vertices first — corefinement needs valid,
   // duplicate-free borders to compute a clean intersection polyline.
@@ -609,23 +614,15 @@ int TriMesh::corefine(TriMesh &other, bool use_exact_kernel)
 
   try
   {
-    if (use_exact_kernel)
-    {
-      Exact_Mesh em1 = convert_to_exact(*this);
-      Exact_Mesh em2 = convert_to_exact(other);
-      PMP::corefine(em1, em2);
-      set_mesh(convert_to_double_mesh(em1));
-      other.set_mesh(convert_to_double_mesh(em2));
-    }
-    else
-    {
-      PMP::corefine(_mesh, other._mesh);
-    }
+    Exact_Mesh em1 = convert_to_exact(*this);
+    Exact_Mesh em2 = convert_to_exact(other);
+    PMP::corefine(em1, em2);
+    set_mesh(convert_to_double_mesh(em1));
+    other.set_mesh(convert_to_double_mesh(em2));
   }
   catch (const std::exception &e)
   {
-    std::cerr << "corefine failed: " << e.what() << std::endl;
-    return 0;
+    throw std::runtime_error(std::string("corefine failed: ") + e.what());
   }
 
   if (_mesh.has_garbage())
@@ -649,10 +646,7 @@ int TriMesh::corefine(TriMesh &other, bool use_exact_kernel)
 int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exact_kernel)
 {
   if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
-  {
-    std::cerr << "Error: Source mesh is empty!" << std::endl;
-    return 0;
-  }
+    throw std::invalid_argument("clipWithPlane: source mesh is empty");
 
   const int faces_before = static_cast<int>(_mesh.number_of_faces());
 
@@ -679,7 +673,8 @@ int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exac
   }
   catch (const std::exception &e)
   {
-    std::cerr << "Plane clip failed: " << e.what() << std::endl;
+    // pybind11 maps runtime_error -> Python RuntimeError.
+    throw std::runtime_error(std::string("clipWithPlane: clip failed: ") + e.what());
   }
 
   const int faces_after = static_cast<int>(_mesh.number_of_faces());
@@ -733,10 +728,10 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
   if (_mesh.has_garbage())
     _mesh.collect_garbage();
   if (property.size() != _mesh.number_of_vertices())
-  {
-    std::cerr << "Error: Property size does not match number of vertices." << std::endl;
-    return;
-  }
+    throw std::invalid_argument(
+        "cut_with_implicit_function: property size (" +
+        std::to_string(property.size()) + ") does not match the number of "
+        "mesh vertices (" + std::to_string(_mesh.number_of_vertices()) + ")");
   // Create a property map for vertex properties
   typedef boost::property_map<TriangleMesh, boost::vertex_index_t>::type VertexIndexMap;
   VertexIndexMap vim = get(boost::vertex_index, _mesh);
