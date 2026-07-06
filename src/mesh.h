@@ -53,7 +53,7 @@ public:
         // coincident vertices and edges along the intersection curve, so patches
         // taken from each (e.g. a contact cut by a fault and the matching fault
         // patch) stitch together watertight. Both meshes are mutated in place.
-        // Returns the number of intersection polyline segments inserted.
+        // Returns the number of vertices added to this mesh by the corefinement.
         int corefine(TriMesh &other, bool use_exact_kernel = true);
 
         // Method to remesh the triangle mesh
@@ -105,4 +105,4 @@ private:
             _edge_is_constrained_map;
 };
 
-#endif // MESH_HANDLER_H
+#endif // MESH_H

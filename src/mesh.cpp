@@ -712,6 +712,12 @@ int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exac
   // survived, re-resolved by coordinate. Without this, stale Edge_index values
   // in _fixedEdges would mark unrelated (recycled) edges as protected during a
   // later remesh().
+  //
+  // Limitation: a constraint that the plane cuts *through* is not recovered.
+  // rebuild_fixed_edges_from_coords only re-resolves a constraint when its two
+  // original endpoints are still directly connected; the plane overload of
+  // PMP::clip takes no edge_is_constrained_map, so a split introduces a midpoint
+  // that breaks that adjacency and the sub-edges are left unconstrained.
   rebuild_fixed_edges_from_coords(saved_constraints);
   return faces_before - faces_after;
 }
