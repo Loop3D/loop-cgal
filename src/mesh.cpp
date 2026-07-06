@@ -520,67 +520,57 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
       std::cout << "Clipping tm with clipper." << std::endl;
     }
 
+    bool flag = false;
     try
     {
-      bool flag = false;
-      try
-      {
-        if (use_exact_kernel){
-          // The exact round trip rebuilds _mesh from scratch (convert_to_double_mesh),
-          // so every Edge_index in _fixedEdges is invalidated and the constrained
-          // map cannot be threaded through the exact clip. Capture constraints by
-          // geometry beforehand and re-resolve them against the rebuilt mesh after.
-          auto saved_constraints = snapshot_constraint_coords();
-          Exact_Mesh exact_clipper = convert_to_exact(scaled_clipper);
-          Exact_Mesh exact_mesh = convert_to_exact(*this);
-          flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
-          set_mesh(convert_to_double_mesh(exact_mesh));
-          if (flag)
-            rebuild_fixed_edges_from_coords(saved_constraints);
-        }
-        else{
-          // Pass the constrained-edge map for both meshes: CGAL reads existing
-          // constraints on input and, on output, marks the intersection edges and
-          // any surviving/split constraint edges. After the clip, _fixedEdges holds
-          // valid (pre-garbage-collection) indices, so snapshot it by geometry,
-          // collect garbage, then re-resolve — Edge_index values do not survive
-          // collect_garbage().
-          flag = PMP::clip(
-              _mesh, scaled_clipper._mesh,
-              CGAL::parameters::edge_is_constrained_map(_edge_is_constrained_map)
-                  .clip_volume(false),
-              CGAL::parameters::edge_is_constrained_map(
-                  scaled_clipper._edge_is_constrained_map));
-          if (flag)
-          {
-            auto saved_constraints = snapshot_constraint_coords();
-            if (_mesh.has_garbage())
-              _mesh.collect_garbage();
-            rebuild_fixed_edges_from_coords(saved_constraints);
-          }
-        }
+      if (use_exact_kernel){
+        // The exact round trip rebuilds _mesh from scratch (convert_to_double_mesh),
+        // so every Edge_index in _fixedEdges is invalidated and the constrained
+        // map cannot be threaded through the exact clip. Capture constraints by
+        // geometry beforehand and re-resolve them against the rebuilt mesh after.
+        auto saved_constraints = snapshot_constraint_coords();
+        Exact_Mesh exact_clipper = convert_to_exact(scaled_clipper);
+        Exact_Mesh exact_mesh = convert_to_exact(*this);
+        flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
+        set_mesh(convert_to_double_mesh(exact_mesh));
+        if (flag)
+          rebuild_fixed_edges_from_coords(saved_constraints);
       }
-      catch (const std::exception &e)
-      {
-        std::cerr << "Corefinement failed: " << e.what() << std::endl;
-      }
-      if (!flag)
-      {
-        std::cerr << "Warning: Clipping operation failed." << std::endl;
-      }
-      else
-      {
-        if (LoopCGAL::verbose)
+      else{
+        // Pass the constrained-edge map for both meshes: CGAL reads existing
+        // constraints on input and, on output, marks the intersection edges and
+        // any surviving/split constraint edges. After the clip, _fixedEdges holds
+        // valid (pre-garbage-collection) indices, so snapshot it by geometry,
+        // collect garbage, then re-resolve — Edge_index values do not survive
+        // collect_garbage().
+        flag = PMP::clip(
+            _mesh, scaled_clipper._mesh,
+            CGAL::parameters::edge_is_constrained_map(_edge_is_constrained_map)
+                .clip_volume(false),
+            CGAL::parameters::edge_is_constrained_map(
+                scaled_clipper._edge_is_constrained_map));
+        if (flag)
         {
-          std::cout << "Clipping successful. Result has "
-                    << _mesh.number_of_vertices() << " vertices and "
-                    << _mesh.number_of_faces() << " faces." << std::endl;
+          auto saved_constraints = snapshot_constraint_coords();
+          if (_mesh.has_garbage())
+            _mesh.collect_garbage();
+          rebuild_fixed_edges_from_coords(saved_constraints);
         }
       }
     }
     catch (const std::exception &e)
     {
       std::cerr << "Error during clipping: " << e.what() << std::endl;
+    }
+    if (!flag)
+    {
+      std::cerr << "Warning: Clipping operation failed." << std::endl;
+    }
+    else if (LoopCGAL::verbose)
+    {
+      std::cout << "Clipping successful. Result has "
+                << _mesh.number_of_vertices() << " vertices and "
+                << _mesh.number_of_faces() << " faces." << std::endl;
     }
   }
   else
