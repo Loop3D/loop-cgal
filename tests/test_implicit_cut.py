@@ -126,11 +126,6 @@ def test_snap_tol_reuses_nearby_vertex():
     )
 
 
-@pytest.mark.xfail(
-    reason="known bug: wrong-side seam sub-triangles are retained; fixed by the "
-    "data-driven case-table refactor",
-    strict=True,
-)
 def test_keep_positive_side_is_tight():
     """KEEP_POSITIVE_SIDE must retain exactly the region x >= value."""
     tm, v, f = _cut("x", 4.5, ImplicitCutMode.KEEP_POSITIVE_SIDE)
@@ -141,11 +136,6 @@ def test_keep_positive_side_is_tight():
     assert tm.area == pytest.approx((SIZE - 4.5) * SIZE, rel=1e-3)
 
 
-@pytest.mark.xfail(
-    reason="known bug: wrong-side seam sub-triangles are retained; fixed by the "
-    "data-driven case-table refactor",
-    strict=True,
-)
 def test_keep_negative_side_is_tight():
     """KEEP_NEGATIVE_SIDE must retain exactly the region x <= value."""
     tm, v, f = _cut("x", 4.5, ImplicitCutMode.KEEP_NEGATIVE_SIDE)
@@ -156,11 +146,6 @@ def test_keep_negative_side_is_tight():
     assert tm.area == pytest.approx(4.5 * SIZE, rel=1e-3)
 
 
-@pytest.mark.xfail(
-    reason="known bug: wrong-side seam sub-triangles are retained; fixed by the "
-    "data-driven case-table refactor",
-    strict=True,
-)
 def test_sides_partition_the_original():
     """Positive and negative sides must partition the original area (they only
     share the zero-area seam), so their areas sum to the whole."""

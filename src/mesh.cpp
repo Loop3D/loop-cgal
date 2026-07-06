@@ -846,9 +846,6 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
       continue;
     }
     auto tri = tri_array[t];
-    // if all > value skip (hanging_wall in python)
-    if (vertex_properties[tri[0]] > value && vertex_properties[tri[1]] > value && vertex_properties[tri[2]] > value)
-      continue;
     // for each edge of tri, check if edge crosses
     for (auto eid : tri2edge[t])
     {
@@ -898,138 +895,43 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
       new_point_on_edge[eid] = newverts.size() - 1;
     }
 
-    double v1 = vertex_properties[tri[0]];
-    double v2 = vertex_properties[tri[1]];
-    double v3 = vertex_properties[tri[2]];
-    // replicate python cases
-    // convert tri to vector of 3 original indices and 2 new points
-    std::array<std::size_t, 5> extended = {tri[0], tri[1], tri[2], 0, 0};
-    // retrieve relevant edges indices
+    // Edge ids of the three triangle sides, and the crossing vertex inserted on
+    // each (SIZE_MAX where that side does not cross the isovalue).
     std::size_t e01 = edge_index_map[std::make_pair(std::min(tri[0], tri[1]), std::max(tri[0], tri[1]))];
     std::size_t e12 = edge_index_map[std::make_pair(std::min(tri[1], tri[2]), std::max(tri[1], tri[2]))];
     std::size_t e20 = edge_index_map[std::make_pair(std::min(tri[2], tri[0]), std::max(tri[2], tri[0]))];
-    // Get new points where available
-    std::size_t np_e01 = new_point_on_edge.count(e01) ? new_point_on_edge[e01] : SIZE_MAX;
-    std::size_t np_e12 = new_point_on_edge.count(e12) ? new_point_on_edge[e12] : SIZE_MAX;
-    std::size_t np_e20 = new_point_on_edge.count(e20) ? new_point_on_edge[e20] : SIZE_MAX;
-    // Helper to append triangle
-    auto append_tri = [&](std::array<std::size_t, 3> tarr)
-    { newtris.push_back(tarr); };
+    const std::size_t c01 = new_point_on_edge.count(e01) ? new_point_on_edge[e01] : SIZE_MAX;
+    const std::size_t c12 = new_point_on_edge.count(e12) ? new_point_on_edge[e12] : SIZE_MAX;
+    const std::size_t c20 = new_point_on_edge.count(e20) ? new_point_on_edge[e20] : SIZE_MAX;
 
-    // CASE 1: v1 > value and v2 > value and v3<value
-    if (v1 > value && v2 > value && v3 < value)
-    {
-      std::size_t p1 = np_e12;
-      std::size_t p2 = np_e20;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[1], extended[3]};
-      std::array<std::size_t, 3> m2 = {extended[0], extended[3], extended[4]};
-      std::array<std::size_t, 3> m3 = {extended[4], extended[3], extended[2]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 1 executed" << std::endl;
-      }
-      continue;
-    }
-    // CASE 2
-    if (v1 > value && v2 < value && v3 > value)
-    {
-      std::size_t p1 = np_e01;
-      std::size_t p2 = np_e12;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[3], extended[2]};
-      std::array<std::size_t, 3> m2 = {extended[3], extended[4], extended[2]};
-      std::array<std::size_t, 3> m3 = {extended[3], extended[1], extended[4]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 2 executed" << std::endl;
-      }
-      continue;
-    }
-    // CASE 3
-    if (v1 < value && v2 > value && v3 > value)
-    {
-      std::size_t p1 = np_e01;
-      std::size_t p2 = np_e20;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[3], extended[4]};
-      std::array<std::size_t, 3> m2 = {extended[3], extended[1], extended[2]};
-      std::array<std::size_t, 3> m3 = {extended[4], extended[3], extended[2]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 3 executed" << std::endl;
-      }
-      continue;
-    }
-    // CASE 5
-    if (v1 < value && v2 < value && v3 > value)
-    {
-      std::size_t p1 = np_e12;
-      std::size_t p2 = np_e20;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[1], extended[3]};
-      std::array<std::size_t, 3> m2 = {extended[0], extended[3], extended[4]};
-      std::array<std::size_t, 3> m3 = {extended[4], extended[3], extended[2]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 5 executed" << std::endl;
-      }
-      continue;
-    }
-    // CASE 6
-    if (v1 < value && v2 > value && v3 < value)
-    {
-      std::size_t p1 = np_e01;
-      std::size_t p2 = np_e12;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[3], extended[2]};
-      std::array<std::size_t, 3> m2 = {extended[3], extended[4], extended[2]};
-      std::array<std::size_t, 3> m3 = {extended[3], extended[1], extended[4]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 6 executed" << std::endl;
-      }
-      continue;
-    }
-    // CASE 7
-    if (v1 > value && v2 < value && v3 < value)
-    {
-      std::size_t p1 = np_e01;
-      std::size_t p2 = np_e20;
-      extended[3] = p1;
-      extended[4] = p2;
-      std::array<std::size_t, 3> m1 = {extended[0], extended[3], extended[4]};
-      std::array<std::size_t, 3> m2 = {extended[3], extended[2], extended[4]};
-      std::array<std::size_t, 3> m3 = {extended[3], extended[1], extended[2]};
-      newtris[t] = m1;
-      append_tri(m2);
-      append_tri(m3);
-      if (LoopCGAL::verbose)
-      {
-        std::cout << "CASE 7 executed" << std::endl;
-      }
-      continue;
-    }
+    // Split the straddling triangle along the seam.  Exactly one vertex (the
+    // "lone" vertex) lies on the opposite side of the isovalue from the other
+    // two — the nudge above guarantees no vertex is exactly on it — so the two
+    // triangle sides incident to the lone vertex are the ones that cross.  The
+    // three sub-triangles produced depend only on *which* vertex is lone, not on
+    // its sign; the sign only decides, in the assembly filter below, which
+    // sub-triangles survive.  This collapses the six near-identical hand-written
+    // cases (whose sign-paired variants produced identical oriented triangles)
+    // into one table keyed on the lone vertex.
+    const bool p0 = vertex_properties[tri[0]] > value;
+    const bool p1 = vertex_properties[tri[1]] > value;
+    const bool p2 = vertex_properties[tri[2]] > value;
+    int lone;
+    if (p1 == p2)      lone = 0; // tri[0] differs from tri[1] == tri[2]
+    else if (p0 == p2) lone = 1; // tri[1] differs
+    else               lone = 2; // tri[2] differs
+
+    std::array<std::array<std::size_t, 3>, 3> sub;
+    if (lone == 0)
+      sub = {{{tri[0], c01, c20}, {c01, tri[1], tri[2]}, {c20, c01, tri[2]}}};
+    else if (lone == 1)
+      sub = {{{tri[0], c01, tri[2]}, {c01, c12, tri[2]}, {c01, tri[1], c12}}};
+    else
+      sub = {{{tri[0], tri[1], c12}, {tri[0], c12, c20}, {c20, c12, tri[2]}}};
+
+    newtris[t] = sub[0];
+    newtris.push_back(sub[1]);
+    newtris.push_back(sub[2]);
   }
 
   // Build new CGAL mesh from newverts and newtris
@@ -1043,12 +945,18 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
     // skip degenerate
     if (tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2])
       continue;
+    // Drop sub-triangles on the unwanted side.  Comparisons are inclusive of the
+    // seam: a wrong-side seam sub-triangle has two crossing vertices whose value
+    // is exactly `value` plus one vertex strictly on the wrong side, so a strict
+    // comparison would spare it and leave a one-triangle fringe past the
+    // isovalue.  Using <=/>= drops it, so the cut stops exactly at the seam.
+    // (NaN values compare false either way, so off-extent triangles are kept.)
     if (ImplicitCutMode::KEEP_NEGATIVE_SIDE == cutmode)
     {
       double v0 = newvals[tri[0]];
       double v1 = newvals[tri[1]];
       double v2 = newvals[tri[2]];
-      if (v0 > value && v1 > value && v2 > value)
+      if (v0 >= value && v1 >= value && v2 >= value)
       {
         continue;
       }
@@ -1058,7 +966,7 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
       double v0 = newvals[tri[0]];
       double v1 = newvals[tri[1]];
       double v2 = newvals[tri[2]];
-      if (v0 < value && v1 < value && v2 < value)
+      if (v0 <= value && v1 <= value && v2 <= value)
       {
         continue;
       }
