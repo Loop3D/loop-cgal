@@ -84,20 +84,31 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
     }
   };
 
-  const double inv = 1.0 / duplicate_vertex_threshold; // quantisation
+  // A non-positive threshold means "do not merge duplicates".  Quantising with
+  // inv = 1/threshold would then be +inf, scaling every coordinate to a
+  // non-finite value that the isfinite guard below rejects — silently dropping
+  // the entire mesh.  Guard it explicitly and emit every vertex as unique.
+  const bool dedup = duplicate_vertex_threshold > 0.0;
+  const double inv = dedup ? 1.0 / duplicate_vertex_threshold : 0.0; // quantisation
   std::unordered_map<QKey, int, QHash> qmap;           // grid → index
 
   int next_idx = 0;
   for (VIndex v : tm.vertices()) {
     const auto &p = tm.point(v);
-    
+
     // Validate vertex coordinates
     if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(p.z())) {
       if (LoopCGAL::verbose)
         std::cout << "Warning: Non-finite vertex coordinates, skipping vertex\n";
       continue;
     }
-    
+
+    if (!dedup) { // merging disabled → keep every vertex distinct
+      vertices.push_back({p.x(), p.y(), p.z()});
+      vertex_index_map[v] = next_idx++;
+      continue;
+    }
+
     // Compute quantized key with overflow protection
     double x_scaled = p.x() * inv;
     double y_scaled = p.y() * inv;

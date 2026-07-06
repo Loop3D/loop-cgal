@@ -121,6 +121,58 @@ void TriMesh::init()
   _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
 }
 
+std::vector<std::pair<Point, Point>> TriMesh::snapshot_constraint_coords() const
+{
+  std::vector<std::pair<Point, Point>> coords;
+  coords.reserve(_fixedEdges.size());
+  for (auto e : _fixedEdges)
+  {
+    // _fixedEdges may hold edges that clip() has since tombstoned (removed but
+    // not yet garbage-collected); skip those so we never dereference a dead
+    // halfedge or capture a stale position.
+    if (!_mesh.has_valid_index(e) || _mesh.is_removed(e))
+      continue;
+    auto h = _mesh.halfedge(e);
+    coords.emplace_back(_mesh.point(_mesh.source(h)), _mesh.point(_mesh.target(h)));
+  }
+  return coords;
+}
+
+void TriMesh::rebuild_fixed_edges_from_coords(
+    const std::vector<std::pair<Point, Point>> &saved)
+{
+  // Border edges of the (possibly newly built) mesh are always constraints —
+  // this re-derives the outer boundary plus any fresh cut boundary left by the
+  // clip, exactly as init() would.
+  _fixedEdges = collect_border_edges(_mesh);
+
+  // Coordinate → vertex lookup for the current mesh. Positions are compared by
+  // exact double value: surviving vertices keep their coordinates bit-for-bit
+  // across clip()+collect_garbage() and across the exact round trip (an exact
+  // number built from a double converts back to that same double), so no
+  // tolerance is needed to re-find them.
+  std::map<std::tuple<double, double, double>, TriangleMesh::Vertex_index> lut;
+  for (auto v : _mesh.vertices())
+  {
+    const auto &p = _mesh.point(v);
+    lut.emplace(std::make_tuple(p.x(), p.y(), p.z()), v);
+  }
+
+  for (const auto &pr : saved)
+  {
+    auto it0 = lut.find(std::make_tuple(pr.first.x(), pr.first.y(), pr.first.z()));
+    auto it1 = lut.find(std::make_tuple(pr.second.x(), pr.second.y(), pr.second.z()));
+    if (it0 == lut.end() || it1 == lut.end())
+      continue; // an endpoint no longer exists — constraint did not survive
+    auto h = _mesh.halfedge(it0->second, it1->second);
+    if (h == TriangleMesh::null_halfedge())
+      continue; // endpoints exist but are no longer directly connected
+    _fixedEdges.insert(_mesh.edge(h));
+  }
+
+  _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
+}
+
 // Move constructor: _edge_is_constrained_map stores a raw pointer into
 // _fixedEdges, so after relocating _fixedEdges we must re-bind the map.
 TriMesh::TriMesh(TriMesh&& other) noexcept
@@ -479,13 +531,38 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
       try
       {
         if (use_exact_kernel){
+          // The exact round trip rebuilds _mesh from scratch (convert_to_double_mesh),
+          // so every Edge_index in _fixedEdges is invalidated and the constrained
+          // map cannot be threaded through the exact clip. Capture constraints by
+          // geometry beforehand and re-resolve them against the rebuilt mesh after.
+          auto saved_constraints = snapshot_constraint_coords();
           Exact_Mesh exact_clipper = convert_to_exact(scaled_clipper);
           Exact_Mesh exact_mesh = convert_to_exact(*this);
           flag = PMP::clip(exact_mesh, exact_clipper, CGAL::parameters::clip_volume(false));
           set_mesh(convert_to_double_mesh(exact_mesh));
+          if (flag)
+            rebuild_fixed_edges_from_coords(saved_constraints);
         }
         else{
-          flag = PMP::clip(_mesh, scaled_clipper._mesh, CGAL::parameters::clip_volume(false));
+          // Pass the constrained-edge map for both meshes: CGAL reads existing
+          // constraints on input and, on output, marks the intersection edges and
+          // any surviving/split constraint edges. After the clip, _fixedEdges holds
+          // valid (pre-garbage-collection) indices, so snapshot it by geometry,
+          // collect garbage, then re-resolve — Edge_index values do not survive
+          // collect_garbage().
+          flag = PMP::clip(
+              _mesh, scaled_clipper._mesh,
+              CGAL::parameters::edge_is_constrained_map(_edge_is_constrained_map)
+                  .clip_volume(false),
+              CGAL::parameters::edge_is_constrained_map(
+                  scaled_clipper._edge_is_constrained_map));
+          if (flag)
+          {
+            auto saved_constraints = snapshot_constraint_coords();
+            if (_mesh.has_garbage())
+              _mesh.collect_garbage();
+            rebuild_fixed_edges_from_coords(saved_constraints);
+          }
         }
       }
       catch (const std::exception &e)
@@ -530,6 +607,62 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
   return faces_before - faces_after;
 }
 
+int TriMesh::corefine(TriMesh &other, bool use_exact_kernel)
+{
+  if (_mesh.number_of_faces() == 0 || other._mesh.number_of_faces() == 0)
+  {
+    std::cerr << "Error: corefine called on an empty mesh." << std::endl;
+    return 0;
+  }
+
+  // Merge collocated border vertices first — corefinement needs valid,
+  // duplicate-free borders to compute a clean intersection polyline.
+  PMP::stitch_borders(_mesh);
+  PMP::remove_isolated_vertices(_mesh);
+  PMP::stitch_borders(other._mesh);
+  PMP::remove_isolated_vertices(other._mesh);
+
+  const std::size_t v_before = _mesh.number_of_vertices();
+
+  try
+  {
+    if (use_exact_kernel)
+    {
+      Exact_Mesh em1 = convert_to_exact(*this);
+      Exact_Mesh em2 = convert_to_exact(other);
+      PMP::corefine(em1, em2);
+      set_mesh(convert_to_double_mesh(em1));
+      other.set_mesh(convert_to_double_mesh(em2));
+    }
+    else
+    {
+      PMP::corefine(_mesh, other._mesh);
+    }
+  }
+  catch (const std::exception &e)
+  {
+    std::cerr << "corefine failed: " << e.what() << std::endl;
+    return 0;
+  }
+
+  if (_mesh.has_garbage())
+    _mesh.collect_garbage();
+  if (other._mesh.has_garbage())
+    other._mesh.collect_garbage();
+
+  // Re-derive border edges (the intersection split changed topology on both).
+  init();
+  other.init();
+
+  const std::size_t v_after = _mesh.number_of_vertices();
+  if (LoopCGAL::verbose)
+  {
+    std::cout << "corefine: this mesh " << v_before << " -> " << v_after
+              << " vertices." << std::endl;
+  }
+  return static_cast<int>(v_after) - static_cast<int>(v_before);
+}
+
 int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exact_kernel)
 {
   if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
@@ -539,6 +672,12 @@ int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exac
   }
 
   const int faces_before = static_cast<int>(_mesh.number_of_faces());
+
+  // Capture constraints by geometry before the clip. The plane overload of
+  // PMP::clip does not accept an edge_is_constrained_map (it uses an internal
+  // one), and both the exact round trip and collect_garbage() below invalidate
+  // every Edge_index, so _fixedEdges must be re-resolved by coordinate after.
+  auto saved_constraints = snapshot_constraint_coords();
 
   try
   {
@@ -572,6 +711,13 @@ int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exac
   // can accumulate enough tombstones to make get_points() take seconds.
   if (_mesh.has_garbage())
     _mesh.collect_garbage();
+
+  // Re-derive the constraint set: border edges of the clipped mesh (including
+  // the new cut boundary) plus any user-added interior constraints that
+  // survived, re-resolved by coordinate. Without this, stale Edge_index values
+  // in _fixedEdges would mark unrelated (recycled) edges as protected during a
+  // later remesh().
+  rebuild_fixed_edges_from_coords(saved_constraints);
   return faces_before - faces_after;
 }
 
@@ -581,7 +727,7 @@ NumpyMesh TriMesh::save(double area_threshold,
   return export_mesh(_mesh, area_threshold, duplicate_vertex_threshold);
 }
 
-void TriMesh::cut_with_implicit_function(const std::vector<double> &property, double value, ImplicitCutMode cutmode)
+void TriMesh::cut_with_implicit_function(const std::vector<double> &property, double value, ImplicitCutMode cutmode, double snap_tol)
 {
   std::cout << "Cutting mesh with implicit function at value " << value << std::endl;
   std::cout << "Mesh has " << _mesh.number_of_vertices() << " vertices and "
@@ -600,6 +746,17 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
   {
     vertex_properties[vim[v]] = property[vim[v]];
   }
+
+  // The sign-based case table below uses strict >/< comparisons, so a vertex
+  // whose property equals `value` exactly matches neither side: its triangle is
+  // left un-split and the isocontour is torn where it should pass through that
+  // vertex.  Nudge any exactly-on-value property to the next representable
+  // double (consistently to the positive side) so every vertex is unambiguously
+  // classified; NaN (off-extent) compares false and is left untouched.  The
+  // shift is sub-ULP, so it does not move the seam for any non-degenerate input.
+  for (auto &vp : vertex_properties)
+    if (vp == value)
+      vp = std::nextafter(value, HUGE_VAL);
   auto property_map = boost::make_iterator_property_map(
       vertex_properties.begin(), vim);
 
@@ -713,6 +870,27 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
         ratio = 0.5;
       else
         ratio = (value - f0) / denom;
+
+      // Snap the crossing to an existing endpoint when it lands within snap_tol
+      // (measured as a fraction of the edge) of that endpoint.  Otherwise the
+      // crossing point sits an infinitesimal distance from a real vertex, and
+      // the sub-triangles built from it in the case table below are slivers that
+      // a downstream pass would have to collapse.  Snapping reuses the existing
+      // vertex instead: any sub-triangle that collapses to a repeated index is
+      // dropped by the degeneracy check when the new mesh is assembled, so no
+      // sliver is ever created.  newverts starts as a copy of verts, so the
+      // original vertex indices ends.first/ends.second are valid indices into it.
+      if (ratio <= snap_tol)
+      {
+        new_point_on_edge[eid] = ends.first;
+        continue;
+      }
+      if (ratio >= 1.0 - snap_tol)
+      {
+        new_point_on_edge[eid] = ends.second;
+        continue;
+      }
+
       Point p0 = verts[ends.first];
       Point p1 = verts[ends.second];
       Point np = Point(p0.x() + ratio * (p1.x() - p0.x()), p0.y() + ratio * (p1.y() - p0.y()), p0.z() + ratio * (p1.z() - p0.z()));

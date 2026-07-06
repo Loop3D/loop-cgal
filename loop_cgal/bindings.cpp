@@ -31,6 +31,13 @@ PYBIND11_MODULE(_loop_cgal, m)
               "Clip the mesh with the halfspace ax+by+cz+d <= 0. "
               "Uses PMP::clip(mesh, Plane_3) directly — no corefinement, no skirt construction. "
               "Returns the number of faces removed (0 = no-op).")
+         .def("corefine", &TriMesh::corefine, py::arg("other"),
+              py::arg("use_exact_kernel") = true,
+              "Corefine this mesh with another, inserting the shared intersection "
+              "polyline into BOTH meshes in place. After the call the two meshes "
+              "carry coincident vertices/edges along the intersection curve, so "
+              "patches taken from each side stitch together watertight. "
+              "Returns the number of vertices added to this mesh.")
          .def("cut_with_surface", &TriMesh::cutWithSurface, py::arg("surface"),
               py::arg("preserve_intersection") = false,
               py::arg("preserve_intersection_clipper") = false,
@@ -51,7 +58,10 @@ PYBIND11_MODULE(_loop_cgal, m)
               "Vertex index pairs defining edges to be fixed in mesh when remeshing.")
          .def("cut_with_implicit_function", &TriMesh::cut_with_implicit_function,
               py::arg("property"), py::arg("value"),py::arg("cutmode") = ImplicitCutMode::KEEP_POSITIVE_SIDE,
-              "Cut the mesh with an implicit function defined by vertex properties.")
+              py::arg("snap_tol") = 1e-4,
+              "Cut the mesh with an implicit function defined by vertex properties. "
+              "snap_tol reuses an existing vertex when a crossing lands within that "
+              "fraction of an edge from it, preventing sliver triangles (0 = disable).")
          .def("_cgal_area", &TriMesh::area, "Surface area computed directly from CGAL mesh.")
          .def("_cgal_n_faces", &TriMesh::n_faces, "Number of faces in the CGAL mesh.")
          .def("_cgal_n_vertices", &TriMesh::n_vertices, "Number of vertices in the CGAL mesh.")

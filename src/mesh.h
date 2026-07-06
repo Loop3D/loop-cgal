@@ -48,12 +48,25 @@ public:
         int clipWithPlane(double a, double b, double c, double d,
                           bool use_exact_kernel = true);
 
+        // Corefine this mesh with another, inserting the SHARED intersection
+        // polyline into BOTH meshes. After the call the two meshes carry
+        // coincident vertices and edges along the intersection curve, so patches
+        // taken from each (e.g. a contact cut by a fault and the matching fault
+        // patch) stitch together watertight. Both meshes are mutated in place.
+        // Returns the number of intersection polyline segments inserted.
+        int corefine(TriMesh &other, bool use_exact_kernel = true);
+
         // Method to remesh the triangle mesh
         void remesh(bool split_long_edges,  double target_edge_length,
                     int number_of_iterations, bool protect_constraints,
                     bool relax_constraints);
         void init();
-        void cut_with_implicit_function(const std::vector<double>& property, double value, ImplicitCutMode cutmode = ImplicitCutMode::KEEP_POSITIVE_SIDE);
+        // Cut the mesh along the isocontour property==value.
+        // snap_tol: when an edge crossing lands within this fraction of an edge
+        // from an existing endpoint, reuse that endpoint instead of inserting a
+        // near-coincident vertex. This prevents the sliver triangles that a raw
+        // insertion produces (0 = never snap, exact old behaviour).
+        void cut_with_implicit_function(const std::vector<double>& property, double value, ImplicitCutMode cutmode = ImplicitCutMode::KEEP_POSITIVE_SIDE, double snap_tol = 1e-4);
         // Getters for mesh properties
         void reverseFaceOrientation();
         NumpyMesh save(double area_threshold, double duplicate_vertex_threshold);
@@ -71,6 +84,20 @@ public:
 private:
         // Internal constructor used by cutWithSurface to wrap a scaled copy.
         explicit TriMesh(TriangleMesh m) : _mesh(std::move(m)) { init(); }
+
+        // Capture the endpoint coordinates of every edge currently in
+        // _fixedEdges that is still live in _mesh. Edge_index handles are not
+        // stable across clip()/collect_garbage() or the exact-kernel round
+        // trip, so constraints must be tracked by geometry, not by index.
+        std::vector<std::pair<Point, Point>> snapshot_constraint_coords() const;
+
+        // Rebuild _fixedEdges (and re-bind the constrained-edge map) from a
+        // coordinate snapshot: border edges of the current _mesh are always
+        // re-derived, and each saved endpoint pair is re-resolved to an edge
+        // descriptor in the current _mesh when both endpoints still exist and
+        // are directly connected. Use after any op that invalidates indices.
+        void rebuild_fixed_edges_from_coords(
+            const std::vector<std::pair<Point, Point>> &saved);
 
         std::set<TriangleMesh::Edge_index> _fixedEdges;
         TriangleMesh _mesh; // The underlying CGAL surface mesh
