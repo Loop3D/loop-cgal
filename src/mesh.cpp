@@ -1178,12 +1178,14 @@ TriMesh TriMesh::read_from_file(const std::string& path)
 
     char magic[6];
     in.read(magic, 6);
-    if (std::string(magic, 6) != "LCMESH")
+    if (!in || std::string(magic, 6) != "LCMESH")
         throw std::runtime_error("TriMesh::read_from_file — bad magic in: " + path);
 
     uint32_t nv, nf;
     in.read(reinterpret_cast<char*>(&nv), 4);
     in.read(reinterpret_cast<char*>(&nf), 4);
+    if (!in)
+        throw std::runtime_error("TriMesh::read_from_file — truncated header in: " + path);
 
     TriangleMesh mesh;
     std::vector<TriangleMesh::Vertex_index> verts(nv);
@@ -1192,6 +1194,8 @@ TriMesh TriMesh::read_from_file(const std::string& path)
         in.read(reinterpret_cast<char*>(&x), 8);
         in.read(reinterpret_cast<char*>(&y), 8);
         in.read(reinterpret_cast<char*>(&z), 8);
+        if (!in)
+            throw std::runtime_error("TriMesh::read_from_file — truncated vertex data in: " + path);
         verts[i] = mesh.add_vertex(Point(x, y, z));
     }
 
@@ -1200,6 +1204,10 @@ TriMesh TriMesh::read_from_file(const std::string& path)
         in.read(reinterpret_cast<char*>(&i0), 4);
         in.read(reinterpret_cast<char*>(&i1), 4);
         in.read(reinterpret_cast<char*>(&i2), 4);
+        if (!in)
+            throw std::runtime_error("TriMesh::read_from_file — truncated face data in: " + path);
+        if (i0 >= nv || i1 >= nv || i2 >= nv)
+            throw std::runtime_error("TriMesh::read_from_file — face index out of range in: " + path);
         mesh.add_face(verts[i0], verts[i1], verts[i2]);
     }
 
