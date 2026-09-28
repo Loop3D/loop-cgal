@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/Loop3D/loop-cgal/compare/v1.0.0...v1.0.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **ci:** drop the cibuildwheel yum step that broke the 1.0.0 release ([b0bad59](https://github.com/Loop3D/loop-cgal/commit/b0bad595222e6f6d1bcdba472bf1446f9f5f5fc8))
+* **ci:** drop the cibuildwheel yum step that broke the 1.0.0 release ([39d61a9](https://github.com/Loop3D/loop-cgal/commit/39d61a9a61348cf97ad70cf4427f8c7905bbf3c8))
+
 ## [1.0.0](https://github.com/Loop3D/loop-cgal/compare/v0.1.8...v1.0.0) (2026-09-28)
 
 
