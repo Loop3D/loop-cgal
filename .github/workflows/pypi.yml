@@ -27,7 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-14, windows-latest]
+        # macos-14 only: it already builds the full set (cp39-cp313, x86_64 and
+        # arm64), so macos-latest was duplicating it. macos-latest has also moved
+        # to macOS 26, whose homebrew bottles for gmp/mpfr carry a minimum target
+        # of 26.0 — above MACOSX_DEPLOYMENT_TARGET below — so delocate rejects the
+        # repaired wheel. Raising the target instead would mean shipping wheels
+        # that only install on macOS 26+.
+        os: [ubuntu-latest, macos-14, windows-latest]
     env:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       CIBW_BUILD_VERBOSITY: '1'
