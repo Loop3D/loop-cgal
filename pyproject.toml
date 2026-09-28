@@ -81,7 +81,11 @@ build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
 skip = "*-win32 *-manylinux_i686 *-musllinux_*"
 
 [tool.cibuildwheel.linux]
-before-all = "yum install python3-devel -y"
+# No before-all: the image already carries CGAL and Eigen, and cibuildwheel builds
+# against its own /opt/python interpreters, which ship their own headers. The
+# `yum install python3-devel` that used to be here installed python36-devel —
+# headers for a Python no wheel is built against — and was the only step in the
+# linux build that needed the network, so a mirror hiccup failed the release.
 manylinux-x86_64-image = "lachlangrose/manylinuxeigencgal"
 [tool.cibuildwheel.macos]
 archs = ["x86_64","arm64"] 
