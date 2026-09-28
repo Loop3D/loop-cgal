@@ -10,7 +10,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(CGAL REQUIRED)
+# 6.0 minimum: the mesh-mesh PMP::clip with an edge_is_constrained_map does not
+# compile against 5.6 (its put() for Boolean_property_map takes a non-const ref).
+# Stating the floor turns a 200-line template error into one clear message.
+find_package(CGAL 6.0 REQUIRED)
 find_package(pybind11 REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
