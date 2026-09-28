@@ -45,3 +45,8 @@ build/*
 *.vtk
 *.ply
 build_win64/*
+
+# Local import shim: symlinks __init__.py / utils.py / build/_loop_cgal.so into
+# one directory so `PYTHONPATH=.local-shim` imports the locally built extension.
+# Needed because the source `loop_cgal/` package has no .so and shadows the build.
+.local-shim/

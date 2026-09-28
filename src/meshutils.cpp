@@ -271,18 +271,29 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
 }
 Exact_Mesh convert_to_exact(const TriMesh& input) {
   Exact_Mesh result;
-  std::map<TriangleMesh::Vertex_index, Exact_Mesh::Vertex_index> vmap;
+  // perf: Surface_mesh Vertex_index values are dense integers bounded by
+  // num_vertices() (vertex container size incl. removed slots). A flat vector
+  // indexed by the raw descriptor gives O(1) remap without per-vertex heap
+  // nodes; sizing by num_vertices() stays correct even if the mesh is not
+  // compact (removed vertices leave holes but never raise the index bound).
+  std::vector<Exact_Mesh::Vertex_index> vmap(input.get_mesh().num_vertices());
+
+  // perf: preallocate property arrays to the source's exact live counts so the
+  // 1:1 topology rebuild never incrementally reallocates as elements are added.
+  result.reserve(input.get_mesh().number_of_vertices(),
+                 input.get_mesh().number_of_edges(),
+                 input.get_mesh().number_of_faces());
 
   for (auto v : vertices(input.get_mesh())) {
     const auto& p = input.get_mesh().point(v);
     Exact_K::Point_3 ep(p.x(), p.y(), p.z());
-    vmap[v] = result.add_vertex(ep);
+    vmap[static_cast<std::size_t>(v)] = result.add_vertex(ep);
   }
 
   for (auto f : faces(input.get_mesh())) {
     std::vector<Exact_Mesh::Vertex_index> face_vertices;
     for (auto v : vertices_around_face(input.get_mesh().halfedge(f), input.get_mesh())) {
-      face_vertices.push_back(vmap[v]);
+      face_vertices.push_back(vmap[static_cast<std::size_t>(v)]);
     }
     result.add_face(face_vertices);
   }
@@ -291,18 +302,27 @@ Exact_Mesh convert_to_exact(const TriMesh& input) {
 }
 TriangleMesh convert_to_double_mesh(const Exact_Mesh& input) {
   TriangleMesh result;
-  std::map<Exact_Mesh::Vertex_index, TriangleMesh::Vertex_index> vmap;
+  // perf: flat vector remap keyed by the dense Vertex_index integer, sized by
+  // num_vertices() (safe upper bound incl. removed slots). Replaces std::map to
+  // drop the O(log n) lookup and per-vertex heap allocation.
+  std::vector<TriangleMesh::Vertex_index> vmap(input.num_vertices());
+
+  // perf: preallocate property arrays to the source's exact live counts so the
+  // 1:1 topology rebuild never incrementally reallocates as elements are added.
+  result.reserve(input.number_of_vertices(),
+                 input.number_of_edges(),
+                 input.number_of_faces());
 
   for (auto v : vertices(input)) {
     const auto& p = input.point(v);
     Point dp(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
-    vmap[v] = result.add_vertex(dp);
+    vmap[static_cast<std::size_t>(v)] = result.add_vertex(dp);
   }
 
   for (auto f : faces(input)) {
     std::vector<TriangleMesh::Vertex_index> face_vertices;
     for (auto v : vertices_around_face(input.halfedge(f), input)) {
-      face_vertices.push_back(vmap[v]);
+      face_vertices.push_back(vmap[static_cast<std::size_t>(v)]);
     }
     result.add_face(face_vertices);
   }

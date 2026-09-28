@@ -40,7 +40,8 @@ public:
         int cutWithSurface(TriMesh &surface,
                             bool preserve_intersection = false,
                             bool preserve_intersection_clipper = false,
-                            bool use_exact_kernel = true);
+                            bool use_exact_kernel = true,
+                            bool extend = true);
 
         // Clip the mesh with a halfspace defined by the plane ax+by+cz+d=0.
         // The negative side (ax+by+cz+d < 0) is kept.
@@ -79,11 +80,16 @@ public:
         std::size_t n_vertices() const;
         pybind11::array_t<double> get_points() const;
         bool overlaps(const TriMesh& other, double bbox_tol = 1e-6) const;
+        bool does_self_intersect() const;
         TriMesh clone() const;
         void write_to_file(const std::string& path) const;
         static TriMesh read_from_file(const std::string& path);
         const TriangleMesh& get_mesh() const { return _mesh; }
         void set_mesh(const TriangleMesh& mesh) { _mesh = mesh; }
+        // perf: rvalue overload avoids a deep Surface_mesh copy; all current
+        // callers pass a temporary (convert_to_double_mesh result). Matches the
+        // move pattern used by the private TriMesh(TriangleMesh) ctor.
+        void set_mesh(TriangleMesh&& mesh) { _mesh = std::move(mesh); }
 private:
         // Internal constructor used by cutWithSurface to wrap a scaled copy.
         explicit TriMesh(TriangleMesh m) : _mesh(std::move(m)) { init(); }
@@ -92,7 +98,12 @@ private:
         // _fixedEdges that is still live in _mesh. Edge_index handles are not
         // stable across clip()/collect_garbage() or the exact-kernel round
         // trip, so constraints must be tracked by geometry, not by index.
-        std::vector<std::pair<Point, Point>> snapshot_constraint_coords() const;
+        // interior_only skips edges that are borders of the current _mesh: those
+        // are re-derived wholesale by the rebuild, so a caller that only needs
+        // to carry user-added interior constraints across can pass true and get
+        // an empty snapshot (and so skip the rebuild) in the common case.
+        std::vector<std::pair<Point, Point>>
+        snapshot_constraint_coords(bool interior_only = false) const;
 
         // Rebuild _fixedEdges (and re-bind the constrained-edge map) from a
         // coordinate snapshot: border edges of the current _mesh are always

@@ -409,3 +409,32 @@ def test_no_artefact_with_collocated_vertices(collocate_target, collocate_clippe
 # cut_with_implicit_function is covered thoroughly in tests/test_implicit_cut.py
 # (the previous smoke test here only asserted n_verts/n_faces >= 0, which is true
 # for any mesh and so could never fail).
+
+
+# ---------------------------------------------------------------------------
+# does_self_intersect
+# ---------------------------------------------------------------------------
+
+
+def test_does_self_intersect_false_for_a_clean_surface(unit_trimesh):
+    assert unit_trimesh.does_self_intersect() is False
+
+
+def test_does_self_intersect_true_for_crossing_triangles():
+    """Two triangles that pass through one another, sharing no vertex."""
+    verts = np.array(
+        [[0.0, 0, 0], [2, 0, 0], [1, 1, 0], [1, -1, 1], [1, 2, -1], [1, 0.5, 0.0]]
+    )
+    tris = np.array([[0, 1, 2], [3, 4, 5]], dtype=np.int32)
+    mesh = loop_cgal.TriMesh.from_vertices_and_triangles(verts, tris)
+    assert mesh.does_self_intersect() is True
+
+
+def test_does_self_intersect_does_not_modify_the_mesh(unit_trimesh):
+    """The check is const — it must not compact, reorder or otherwise touch."""
+    before_points = np.array(unit_trimesh.points, copy=True)
+    before = (unit_trimesh.n_points, unit_trimesh.n_cells, unit_trimesh.area)
+    unit_trimesh.does_self_intersect()
+    after = (unit_trimesh.n_points, unit_trimesh.n_cells, unit_trimesh.area)
+    assert before == after
+    np.testing.assert_array_equal(before_points, np.array(unit_trimesh.points))

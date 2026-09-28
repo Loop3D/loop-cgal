@@ -5,6 +5,9 @@
 #include <fstream>
 #include <stdexcept>
 #include <unordered_map>
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
 #include <CGAL/Polygon_mesh_processing/intersection.h>
@@ -12,6 +15,7 @@
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 #include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/repair.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
@@ -116,7 +120,8 @@ void TriMesh::init()
   _edge_is_constrained_map = CGAL::make_boolean_property_map(_fixedEdges);
 }
 
-std::vector<std::pair<Point, Point>> TriMesh::snapshot_constraint_coords() const
+std::vector<std::pair<Point, Point>>
+TriMesh::snapshot_constraint_coords(bool interior_only) const
 {
   std::vector<std::pair<Point, Point>> coords;
   coords.reserve(_fixedEdges.size());
@@ -128,6 +133,9 @@ std::vector<std::pair<Point, Point>> TriMesh::snapshot_constraint_coords() const
     if (!_mesh.has_valid_index(e) || _mesh.is_removed(e))
       continue;
     auto h = _mesh.halfedge(e);
+    if (interior_only &&
+        (_mesh.is_border(h) || _mesh.is_border(_mesh.opposite(h))))
+      continue;
     coords.emplace_back(_mesh.point(_mesh.source(h)), _mesh.point(_mesh.target(h)));
   }
   return coords;
@@ -380,7 +388,8 @@ void TriMesh::reverseFaceOrientation()
 int TriMesh::cutWithSurface(TriMesh &clipper,
                              bool preserve_intersection,
                              bool preserve_intersection_clipper,
-                            bool use_exact_kernel)
+                            bool use_exact_kernel,
+                            bool extend)
 {
   if (LoopCGAL::verbose)
   {
@@ -419,82 +428,91 @@ int TriMesh::cutWithSurface(TriMesh &clipper,
   // Interior vertices and faces are completely untouched, so the cut location
   // is preserved exactly for both planar and curved (listric) clippers.
   // -----------------------------------------------------------------------
-  CGAL::Bbox_3 target_bb = PMP::bbox(_mesh);
-  const double target_diag = std::sqrt(
-      CGAL::square(target_bb.xmax() - target_bb.xmin()) +
-      CGAL::square(target_bb.ymax() - target_bb.ymin()) +
-      CGAL::square(target_bb.zmax() - target_bb.zmin()));
-
   // Copy the clipper and stitch any collocated border vertices first.
   // stitch_borders can remove/merge vertices, so all subsequent passes must
   // operate on extended_mesh (not clipper._mesh) to keep vertex descriptors valid.
   TriangleMesh extended_mesh = clipper._mesh;
   PMP::stitch_borders(extended_mesh);
 
-  // Pass 1: accumulate per-vertex outward directions from each border halfedge
-  // in extended_mesh (post-stitch).  For a border halfedge h (source→target),
-  // the outward direction is fn × d, where fn is the adjacent face normal and
-  // d is the normalised edge direction.  This lies in the face's tangent plane
-  // and points away from the interior.
-  std::map<TriangleMesh::Vertex_index, Vector> outward_sum;
-  for (auto he : extended_mesh.halfedges())
+  // Grow the clipper by extruding a skirt of new triangles outward from each
+  // boundary edge, so a clipper smaller than the target still cuts all the way
+  // through. Skipped when extend=false: callers passing an already-domain-
+  // spanning clipper must NOT be
+  // re-extended — the skirt of a large surface folds on concave boundaries and
+  // corefinement then rejects the near-coplanar overlap.
+  if (extend)
   {
-    if (!extended_mesh.is_border(he)) continue;
+    CGAL::Bbox_3 target_bb = PMP::bbox(_mesh);
+    const double target_diag = std::sqrt(
+        CGAL::square(target_bb.xmax() - target_bb.xmin()) +
+        CGAL::square(target_bb.ymax() - target_bb.ymin()) +
+        CGAL::square(target_bb.zmax() - target_bb.zmin()));
 
-    const Point &ps = extended_mesh.point(extended_mesh.source(he));
-    const Point &pt = extended_mesh.point(extended_mesh.target(he));
-    Vector d = pt - ps;
-    const double d_len = std::sqrt(d.squared_length());
-    if (d_len < 1e-10) continue;
-    d = d / d_len;
+    // Pass 1: accumulate per-vertex outward directions from each border halfedge
+    // in extended_mesh (post-stitch).  For a border halfedge h (source→target),
+    // the outward direction is fn × d, where fn is the adjacent face normal and
+    // d is the normalised edge direction.  This lies in the face's tangent plane
+    // and points away from the interior.
+    std::map<TriangleMesh::Vertex_index, Vector> outward_sum;
+    for (auto he : extended_mesh.halfedges())
+    {
+      if (!extended_mesh.is_border(he)) continue;
 
-    const auto adj_face = extended_mesh.face(extended_mesh.opposite(he));
-    const Vector fn = PMP::compute_face_normal(adj_face, extended_mesh);
-    const Vector out = CGAL::cross_product(fn, d);
-    const double out_len = std::sqrt(out.squared_length());
-    if (out_len < 1e-10) continue;
+      const Point &ps = extended_mesh.point(extended_mesh.source(he));
+      const Point &pt = extended_mesh.point(extended_mesh.target(he));
+      Vector d = pt - ps;
+      const double d_len = std::sqrt(d.squared_length());
+      if (d_len < 1e-10) continue;
+      d = d / d_len;
 
-    auto vs = extended_mesh.source(he);
-    auto vt = extended_mesh.target(he);
-    outward_sum.try_emplace(vs, 0.0, 0.0, 0.0);
-    outward_sum.try_emplace(vt, 0.0, 0.0, 0.0);
-    outward_sum[vs] = outward_sum[vs] + out / out_len;
-    outward_sum[vt] = outward_sum[vt] + out / out_len;
+      const auto adj_face = extended_mesh.face(extended_mesh.opposite(he));
+      const Vector fn = PMP::compute_face_normal(adj_face, extended_mesh);
+      const Vector out = CGAL::cross_product(fn, d);
+      const double out_len = std::sqrt(out.squared_length());
+      if (out_len < 1e-10) continue;
+
+      auto vs = extended_mesh.source(he);
+      auto vt = extended_mesh.target(he);
+      outward_sum.try_emplace(vs, 0.0, 0.0, 0.0);
+      outward_sum.try_emplace(vt, 0.0, 0.0, 0.0);
+      outward_sum[vs] = outward_sum[vs] + out / out_len;
+      outward_sum[vt] = outward_sum[vt] + out / out_len;
+    }
+
+    // Pass 2: add one new vertex per boundary vertex pushed outward by target_diag,
+    // and stitch a skirt quad (two triangles) per boundary edge of extended_mesh.
+    // The winding order (source, target, target_new) produces normals consistent
+    // with the adjacent interior face.
+    std::map<TriangleMesh::Vertex_index, TriangleMesh::Vertex_index> skirt_vertex;
+    for (auto &[v, dir_sum] : outward_sum)
+    {
+      const double len = std::sqrt(dir_sum.squared_length());
+      if (len < 1e-10) continue;
+      const Vector dir = dir_sum / len;
+      const Point &p = extended_mesh.point(v);
+      skirt_vertex[v] = extended_mesh.add_vertex(
+          Point(p.x() + target_diag * dir.x(),
+                p.y() + target_diag * dir.y(),
+                p.z() + target_diag * dir.z()));
+    }
+
+    for (auto he : extended_mesh.halfedges())
+    {
+      if (!extended_mesh.is_border(he)) continue;
+      auto vs = extended_mesh.source(he);
+      auto vt = extended_mesh.target(he);
+      if (!skirt_vertex.count(vs) || !skirt_vertex.count(vt)) continue;
+      auto vs_new = skirt_vertex[vs];
+      auto vt_new = skirt_vertex[vt];
+      extended_mesh.add_face(vs, vt, vt_new);
+      extended_mesh.add_face(vs, vt_new, vs_new);
+    }
+
+    if (LoopCGAL::verbose)
+      std::cout << "  cutWithSurface: added skirt of "
+                << skirt_vertex.size() << " new vertices over target_diag="
+                << target_diag << "\n";
   }
-
-  // Pass 2: add one new vertex per boundary vertex pushed outward by target_diag,
-  // and stitch a skirt quad (two triangles) per boundary edge of extended_mesh.
-  // The winding order (source, target, target_new) produces normals consistent
-  // with the adjacent interior face.
-  std::map<TriangleMesh::Vertex_index, TriangleMesh::Vertex_index> skirt_vertex;
-  for (auto &[v, dir_sum] : outward_sum)
-  {
-    const double len = std::sqrt(dir_sum.squared_length());
-    if (len < 1e-10) continue;
-    const Vector dir = dir_sum / len;
-    const Point &p = extended_mesh.point(v);
-    skirt_vertex[v] = extended_mesh.add_vertex(
-        Point(p.x() + target_diag * dir.x(),
-              p.y() + target_diag * dir.y(),
-              p.z() + target_diag * dir.z()));
-  }
-
-  for (auto he : extended_mesh.halfedges())
-  {
-    if (!extended_mesh.is_border(he)) continue;
-    auto vs = extended_mesh.source(he);
-    auto vt = extended_mesh.target(he);
-    if (!skirt_vertex.count(vs) || !skirt_vertex.count(vt)) continue;
-    auto vs_new = skirt_vertex[vs];
-    auto vt_new = skirt_vertex[vt];
-    extended_mesh.add_face(vs, vt, vt_new);
-    extended_mesh.add_face(vs, vt_new, vs_new);
-  }
-
-  if (LoopCGAL::verbose)
-    std::cout << "  cutWithSurface: added skirt of "
-              << skirt_vertex.size() << " new vertices over target_diag="
-              << target_diag << "\n";
 
   TriMesh scaled_clipper(std::move(extended_mesh));
 
@@ -727,6 +745,10 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
   // renumbered 0..n-1 contiguously, so idx() is always in range.
   if (_mesh.has_garbage())
     _mesh.collect_garbage();
+  // The cut replaces _mesh wholesale, so the constraint set has to be re-derived
+  // afterwards (see the end of this function).  Only user-added interior
+  // constraints need carrying across by coordinate; borders are re-derived.
+  auto saved_constraints = snapshot_constraint_coords(/*interior_only=*/true);
   if (property.size() != _mesh.number_of_vertices())
     throw std::invalid_argument(
         "cut_with_implicit_function: property size (" +
@@ -830,6 +852,12 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
 
   std::map<std::size_t, std::size_t> new_point_on_edge;
   std::vector<std::array<std::size_t, 3>> newtris(tri_array.begin(), tri_array.end());
+  // Which slots of each triangle are seam crossings rather than original
+  // vertices.  A crossing may reuse an EXISTING vertex index (see snapping
+  // below), so the index alone cannot tell the two apart, and the keep/discard
+  // filter needs to know: a crossing lies on the isosurface by construction and
+  // says nothing about which side the sub-triangle belongs to.
+  std::vector<std::array<bool, 3>> newtris_on_seam(newtris.size(), {false, false, false});
   if (LoopCGAL::verbose)
   {
     std::cout << "Starting main loop over " << tri_array.size() << " triangles." << std::endl;
@@ -844,6 +872,15 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
     // for each edge of tri, check if edge crosses
     for (auto eid : tri2edge[t])
     {
+      // A crossed edge is shared by two straddling triangles, so it is visited
+      // twice.  Without this guard the second visit pushes a second, coincident
+      // crossing vertex and overwrites new_point_on_edge[eid] with it, leaving
+      // the two triangles referencing different vertices at the same position:
+      // the mesh is torn along every seam, and the tear compounds over
+      // sequential cuts.  The crossing is a function of the edge alone, so
+      // reusing the vertex recorded by the first visit is exact.
+      if (new_point_on_edge.count(eid))
+        continue;
       auto ends = edge_array[eid];
       double f0 = vertex_properties[ends.first];
       double f1 = vertex_properties[ends.second];
@@ -871,6 +908,13 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
       // dropped by the degeneracy check when the new mesh is assembled, so no
       // sliver is ever created.  newverts starts as a copy of verts, so the
       // original vertex indices ends.first/ends.second are valid indices into it.
+      // Snapping declares that existing vertex to BE the crossing on THIS edge.
+      // That is a per-edge fact, not a per-vertex one: the same vertex is still
+      // strictly on its own side of the isosurface as far as every other
+      // triangle around it is concerned.  Recording it in newtris_on_seam (per
+      // slot) rather than by overwriting newvals (per vertex) keeps the two
+      // apart — the latter leaks the assertion into every incident sub-triangle
+      // and deletes kept surface wherever the seam runs through a vertex.
       if (ratio <= snap_tol)
       {
         new_point_on_edge[eid] = ends.first;
@@ -924,9 +968,21 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
     else
       sub = {{{tri[0], tri[1], c12}, {tri[0], c12, c20}, {c20, c12, tri[2]}}};
 
+    // Slot-for-slot with `sub` above: true where the entry is c01/c12/c20.
+    std::array<std::array<bool, 3>, 3> sub_on_seam;
+    if (lone == 0)
+      sub_on_seam = {{{false, true, true}, {true, false, false}, {true, true, false}}};
+    else if (lone == 1)
+      sub_on_seam = {{{false, true, false}, {true, true, false}, {true, false, true}}};
+    else
+      sub_on_seam = {{{false, false, true}, {false, true, true}, {true, true, false}}};
+
     newtris[t] = sub[0];
+    newtris_on_seam[t] = sub_on_seam[0];
     newtris.push_back(sub[1]);
+    newtris_on_seam.push_back(sub_on_seam[1]);
     newtris.push_back(sub[2]);
+    newtris_on_seam.push_back(sub_on_seam[2]);
   }
 
   // Build new CGAL mesh from newverts and newtris
@@ -935,42 +991,76 @@ void TriMesh::cut_with_implicit_function(const std::vector<double> &property, do
   new_vhandles.reserve(newverts.size());
   for (auto &p : newverts)
     new_vhandles.push_back(newmesh.add_vertex(p));
-  for (auto &tri : newtris)
+  for (std::size_t ti = 0; ti < newtris.size(); ++ti)
   {
+    const auto &tri = newtris[ti];
+    const auto &on_seam = newtris_on_seam[ti];
     // skip degenerate
     if (tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2])
       continue;
-    // Drop sub-triangles on the unwanted side.  Comparisons are inclusive of the
-    // seam: a wrong-side seam sub-triangle has two crossing vertices whose value
-    // is exactly `value` plus one vertex strictly on the wrong side, so a strict
-    // comparison would spare it and leave a one-triangle fringe past the
-    // isovalue.  Using <=/>= drops it, so the cut stops exactly at the seam.
-    // (NaN values compare false either way, so off-extent triangles are kept.)
-    if (ImplicitCutMode::KEEP_NEGATIVE_SIDE == cutmode)
+
+    // A sub-triangle belongs to the side its ORIGINAL (non-crossing) vertices
+    // lie on; by construction they all lie on the same side.  Crossing vertices
+    // sit on the isosurface and carry no side information, so they are skipped
+    // rather than compared — which is what stops a wrong-side seam fringe (two
+    // crossings plus one strictly-wrong-side vertex) from surviving, and equally
+    // stops a legitimate keep-side sliver from being discarded.
+    // A NaN value means the implicit function was not evaluated there (off
+    // extent); such triangles are kept, as before.
+    // Only the one-sided modes discard anything; PRESERVE_INTERSECTION splits
+    // along the seam but keeps the whole surface.
+    if (ImplicitCutMode::KEEP_POSITIVE_SIDE == cutmode ||
+        ImplicitCutMode::KEEP_NEGATIVE_SIDE == cutmode)
     {
-      double v0 = newvals[tri[0]];
-      double v1 = newvals[tri[1]];
-      double v2 = newvals[tri[2]];
-      if (v0 >= value && v1 >= value && v2 >= value)
+      const bool keep_positive = (ImplicitCutMode::KEEP_POSITIVE_SIDE == cutmode);
+      bool on_keep_side = false;
+      bool undetermined = false;
+      for (int k = 0; k < 3; ++k)
       {
-        continue;
+        if (on_seam[k])
+          continue;
+        const double v = newvals[tri[k]];
+        if (std::isnan(v))
+          undetermined = true;
+        else if (keep_positive ? (v > value) : (v < value))
+          on_keep_side = true;
       }
-    }
-    if (ImplicitCutMode::KEEP_POSITIVE_SIDE == cutmode)
-    {
-      double v0 = newvals[tri[0]];
-      double v1 = newvals[tri[1]];
-      double v2 = newvals[tri[2]];
-      if (v0 <= value && v1 <= value && v2 <= value)
-      {
+      if (!on_keep_side && !undetermined)
         continue;
-      }
     }
+
     newmesh.add_face(new_vhandles[tri[0]], new_vhandles[tri[1]], new_vhandles[tri[2]]);
   }
 
+  // newverts carries every original vertex, including those used only by
+  // dropped triangles.  Left in place they accumulate over sequential cuts, and
+  // the caller — which must size its property array to n_vertices — pays to
+  // evaluate its implicit function on all of them.
+  PMP::remove_isolated_vertices(newmesh);
+  if (newmesh.has_garbage())
+    newmesh.collect_garbage();
+
   // Replace internal mesh
   _mesh = std::move(newmesh);
+
+  // Re-derive the constraint set exactly as clipWithPlane does: border edges of
+  // the new mesh (including the fresh cut boundary) plus any user-added interior
+  // constraints that survived, re-resolved by coordinate.  Without this,
+  // _fixedEdges keeps Edge_index values into the destroyed mesh, which alias
+  // unrelated edges of the new one and mark them protected during a later
+  // remesh(), and the cut boundary is never protected at all.
+  //
+  // Limitation (as for clipWithPlane): a constraint the seam passes *through* is
+  // not recovered, because the inserted crossing vertex breaks the adjacency of
+  // its original endpoints.
+  //
+  // With no interior constraints to carry across (the usual case) init() gives
+  // the same result and skips building a coordinate lookup over every vertex,
+  // which costs ~5 ms per cut on a 100k-vertex mesh.
+  if (saved_constraints.empty())
+    init();
+  else
+    rebuild_fixed_edges_from_coords(saved_constraints);
 }
 
 double TriMesh::area() const
@@ -1121,4 +1211,10 @@ bool TriMesh::overlaps(const TriMesh& other, double bbox_tol) const
     return false;
   }
   return PMP::do_intersect(_mesh, other._mesh);
+}
+
+// Does this mesh intersect itself?
+bool TriMesh::does_self_intersect() const
+{
+  return PMP::does_self_intersect(_mesh);
 }

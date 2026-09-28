@@ -117,12 +117,23 @@ def test_snap_tol_reuses_nearby_vertex():
     tm = loop_cgal.TriMesh.from_vertices_and_triangles(verts, tris)
     n_before = tm.n_points
     # 4.0 is a grid line; 4.0 + 1e-6 is far inside snap_tol (1e-4 of a unit edge).
+    value = 4.0 + 1e-6
     tm.cut_with_implicit_function(
-        verts[:, 0].tolist(), 4.0 + 1e-6, ImplicitCutMode.KEEP_POSITIVE_SIDE, 1e-4
+        verts[:, 0].tolist(), value, ImplicitCutMode.KEEP_POSITIVE_SIDE, 1e-4
     )
-    assert tm.n_points == n_before, (
+    # The count may only shrink: snapping reuses the grid-line vertices instead
+    # of inserting near-duplicates, and the cut then drops the vertices left
+    # isolated on the discarded side.
+    assert tm.n_points <= n_before, (
         f"snap_tol should reuse existing vertices, but point count grew "
         f"{n_before} -> {tm.n_points}"
+    )
+    # The real invariant: every retained vertex still sits on a grid line — no
+    # near-duplicate was inserted a hair off x == 4.0 by the crossing itself.
+    xs = tm._cgal_points()[:, 0]
+    assert np.all(np.abs(xs - np.round(xs)) < 1e-12), (
+        f"a near-duplicate crossing vertex was inserted off the grid line: "
+        f"{xs[np.abs(xs - np.round(xs)) >= 1e-12]}"
     )
 
 
