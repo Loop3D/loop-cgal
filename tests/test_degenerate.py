@@ -28,3 +28,26 @@ def test_degenerate_triangle_raises_value_error():
     surface = make_polydata_degenerate_triangle()
     with pytest.raises(ValueError, match="degenerate triangles"):
         _ = loop_cgal.TriMesh(surface)
+
+
+def test_raw_constructor_skips_bad_triangles_without_crashing():
+    """The C++ array constructor (bypassing Python validation) must skip
+    out-of-range and degenerate triangles gracefully.
+
+    Regression: the constructor looped over the triangle array twice — the
+    second loop re-added every face with no validation, dereferencing the
+    vertex-index vector out of bounds for any triangle the first loop skipped.
+    """
+    from loop_cgal._loop_cgal import TriMesh as RawTriMesh
+
+    verts = np.array(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float64
+    )
+    # one valid triangle, one with an out-of-range index, one degenerate
+    tris = np.array([[0, 1, 2], [0, 2, 99], [1, 1, 3]], dtype=np.int32)
+
+    m = RawTriMesh(verts, tris)  # must not crash
+    assert m._cgal_n_vertices() == 4
+    # only the single valid triangle survives; the bad ones are skipped and,
+    # crucially, no face is inserted twice.
+    assert m._cgal_n_faces() == 1

@@ -84,20 +84,31 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
     }
   };
 
-  const double inv = 1.0 / duplicate_vertex_threshold; // quantisation
+  // A non-positive threshold means "do not merge duplicates".  Quantising with
+  // inv = 1/threshold would then be +inf, scaling every coordinate to a
+  // non-finite value that the isfinite guard below rejects — silently dropping
+  // the entire mesh.  Guard it explicitly and emit every vertex as unique.
+  const bool dedup = duplicate_vertex_threshold > 0.0;
+  const double inv = dedup ? 1.0 / duplicate_vertex_threshold : 0.0; // quantisation
   std::unordered_map<QKey, int, QHash> qmap;           // grid → index
 
   int next_idx = 0;
   for (VIndex v : tm.vertices()) {
     const auto &p = tm.point(v);
-    
+
     // Validate vertex coordinates
     if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(p.z())) {
       if (LoopCGAL::verbose)
         std::cout << "Warning: Non-finite vertex coordinates, skipping vertex\n";
       continue;
     }
-    
+
+    if (!dedup) { // merging disabled → keep every vertex distinct
+      vertices.push_back({p.x(), p.y(), p.z()});
+      vertex_index_map[v] = next_idx++;
+      continue;
+    }
+
     // Compute quantized key with overflow protection
     double x_scaled = p.x() * inv;
     double y_scaled = p.y() * inv;
@@ -258,43 +269,98 @@ NumpyMesh export_mesh(const TriangleMesh &tm, double area_threshold,
   result.triangles = triangles_array;
   return result;
 }
-Exact_Mesh convert_to_exact(const TriMesh& input) {
-  Exact_Mesh result;
-  std::map<TriangleMesh::Vertex_index, Exact_Mesh::Vertex_index> vmap;
+namespace {
 
-  for (auto v : vertices(input.get_mesh())) {
-    const auto& p = input.get_mesh().point(v);
-    Exact_K::Point_3 ep(p.x(), p.y(), p.z());
-    vmap[v] = result.add_vertex(ep);
+// A mesh can end up with two vertices at the same point from either direction:
+// PMP::clip splits seam edges and rounding exact coordinates back to double
+// collapses points that differ below double precision, while write_to_file /
+// read_from_file bypass export_mesh's dedup so the duplicates survive a reload.
+// PMP::clip cannot cope with them -- the next clip along an edge joining such a
+// pair degenerates (Loop3D/loop-cgal#14). Rebuilding through this key merges on
+// exact double equality, which is lossless: the two vertices ARE one point.
+struct PointKey {
+  double x, y, z;
+  bool operator==(const PointKey &o) const noexcept {
+    return x == o.x && y == o.y && z == o.z;
   }
+};
 
-  for (auto f : faces(input.get_mesh())) {
-    std::vector<Exact_Mesh::Vertex_index> face_vertices;
-    for (auto v : vertices_around_face(input.get_mesh().halfedge(f), input.get_mesh())) {
-      face_vertices.push_back(vmap[v]);
+struct PointKeyHash {
+  std::size_t operator()(const PointKey &k) const noexcept {
+    std::size_t h = std::hash<double>{}(k.x);
+    h ^= std::hash<double>{}(k.y) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    h ^= std::hash<double>{}(k.z) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+
+// The exact and double rebuilds differ only in how a point is converted, so
+// they share one 1:1 topology walk.
+template <typename OutMesh, typename InMesh, typename MakePoint>
+OutMesh rebuild_unique(const InMesh &in, MakePoint make_point) {
+  using OutVertex = typename OutMesh::Vertex_index;
+  OutMesh out;
+
+  // perf: flat vector remap keyed by the dense Vertex_index integer, sized by
+  // num_vertices() (safe upper bound incl. removed slots). Replaces std::map to
+  // drop the O(log n) lookup and per-vertex heap allocation.
+  std::vector<OutVertex> vmap(in.num_vertices());
+
+  // perf: preallocate property arrays to the source's exact live counts so the
+  // 1:1 topology rebuild never incrementally reallocates as elements are added.
+  out.reserve(in.number_of_vertices(), in.number_of_edges(), in.number_of_faces());
+
+  std::unordered_map<PointKey, OutVertex, PointKeyHash> unique_points;
+  unique_points.reserve(in.number_of_vertices());
+
+  for (auto v : vertices(in)) {
+    const auto &p = in.point(v);
+    PointKey key{CGAL::to_double(p.x()), CGAL::to_double(p.y()),
+                 CGAL::to_double(p.z())};
+    auto it = unique_points.find(key);
+    if (it == unique_points.end()) {
+      it = unique_points.emplace(key, out.add_vertex(make_point(p))).first;
     }
-    result.add_face(face_vertices);
+    vmap[static_cast<std::size_t>(v)] = it->second;
   }
 
-  return result;
+  for (auto f : faces(in)) {
+    std::vector<OutVertex> face_vertices;
+    for (auto v : vertices_around_face(in.halfedge(f), in)) {
+      face_vertices.push_back(vmap[static_cast<std::size_t>(v)]);
+    }
+    // A merge can collapse two corners of a face onto one vertex. The face then
+    // has zero area and no orientation, so drop it instead of handing add_face
+    // a degenerate triangle.
+    bool degenerate = false;
+    for (std::size_t i = 0; i < face_vertices.size() && !degenerate; ++i) {
+      for (std::size_t j = i + 1; j < face_vertices.size(); ++j) {
+        if (face_vertices[i] == face_vertices[j]) {
+          degenerate = true;
+          break;
+        }
+      }
+    }
+    if (degenerate) {
+      continue;
+    }
+    out.add_face(face_vertices);
+  }
+
+  return out;
 }
+
+} // namespace
+
+Exact_Mesh convert_to_exact(const TriMesh& input) {
+  return rebuild_unique<Exact_Mesh>(
+      input.get_mesh(),
+      [](const Point &p) { return Exact_K::Point_3(p.x(), p.y(), p.z()); });
+}
+
 TriangleMesh convert_to_double_mesh(const Exact_Mesh& input) {
-  TriangleMesh result;
-  std::map<Exact_Mesh::Vertex_index, TriangleMesh::Vertex_index> vmap;
-
-  for (auto v : vertices(input)) {
-    const auto& p = input.point(v);
-    Point dp(CGAL::to_double(p.x()), CGAL::to_double(p.y()), CGAL::to_double(p.z()));
-    vmap[v] = result.add_vertex(dp);
-  }
-
-  for (auto f : faces(input)) {
-    std::vector<TriangleMesh::Vertex_index> face_vertices;
-    for (auto v : vertices_around_face(input.halfedge(f), input)) {
-      face_vertices.push_back(vmap[v]);
-    }
-    result.add_face(face_vertices);
-  }
-
-  return result;
+  return rebuild_unique<TriangleMesh>(input, [](const Exact_K::Point_3 &p) {
+    return Point(CGAL::to_double(p.x()), CGAL::to_double(p.y()),
+                 CGAL::to_double(p.z()));
+  });
 }

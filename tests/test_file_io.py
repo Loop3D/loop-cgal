@@ -118,6 +118,30 @@ def test_read_missing_file(tmp_path):
         TriMesh.read_from_file(str(tmp_path / "nonexistent.lcm"))
 
 
+def test_read_truncated_raises(tmp_path, unit_mesh):
+    """A file with a valid header but truncated body must raise, not read OOB.
+
+    Regression: face indices and vertex data were consumed with no stream-state
+    or bounds check, so a truncated LCMESH file caused out-of-bounds access
+    instead of a clean error.
+    """
+    good = tmp_path / "good.lcm"
+    unit_mesh.write_to_file(str(good))
+    raw = good.read_bytes()
+
+    # Keep magic + the two 4-byte counts (14 bytes) but drop all vertex/face data.
+    truncated = tmp_path / "trunc.lcm"
+    truncated.write_bytes(raw[:14])
+    with pytest.raises(Exception, match="truncated"):
+        TriMesh.read_from_file(str(truncated))
+
+    # Truncated partway through the face block must also be caught.
+    mid = tmp_path / "mid.lcm"
+    mid.write_bytes(raw[:-4])
+    with pytest.raises(Exception, match="truncated"):
+        TriMesh.read_from_file(str(mid))
+
+
 # ---------------------------------------------------------------------------
 # Loaded mesh is fully usable (no dangling state)
 # ---------------------------------------------------------------------------
