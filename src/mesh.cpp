@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
 #include <CGAL/Polygon_mesh_processing/intersection.h>
@@ -665,6 +666,40 @@ int TriMesh::clipWithPlane(double a, double b, double c, double d, bool use_exac
 {
   if (_mesh.number_of_vertices() == 0 || _mesh.number_of_faces() == 0)
     throw std::invalid_argument("clipWithPlane: source mesh is empty");
+
+  // PMP::clip is not idempotent. Re-clipping a mesh that already lies entirely
+  // inside the halfspace removes no face, but still corefines the mesh against
+  // the plane and splits every edge along the existing seam. Repeating a plane
+  // therefore grows the mesh without bound -- and each exact round trip rounds
+  // the new seam points onto coincident doubles, which is what eventually takes
+  // PMP::clip down (Loop3D/loop-cgal#14). Nothing strictly outside the halfspace
+  // means nothing to remove, so return the documented no-op untouched.
+  const double normal_length = std::sqrt(a * a + b * b + c * c);
+  if (!(normal_length > 0.0))
+    throw std::invalid_argument("clipWithPlane: degenerate plane normal (a=b=c=0)");
+  double max_coord = 0.0;
+  double max_signed_distance = -std::numeric_limits<double>::infinity();
+  for (auto v : _mesh.vertices())
+  {
+    const auto &p = _mesh.point(v);
+    max_coord = std::max(max_coord, std::abs(p.x()));
+    max_coord = std::max(max_coord, std::abs(p.y()));
+    max_coord = std::max(max_coord, std::abs(p.z()));
+    const double signed_distance =
+        (a * p.x() + b * p.y() + c * p.z() + d) / normal_length;
+    max_signed_distance = std::max(max_signed_distance, signed_distance);
+  }
+  // Scale the tolerance to the mesh's own coordinate magnitude: the round trip
+  // displaces a seam vertex by a few ulps of that magnitude, never more.
+  const double on_plane_tol = 1e-12 * std::max(1.0, max_coord);
+  if (max_signed_distance <= on_plane_tol)
+  {
+    if (LoopCGAL::verbose)
+      std::cout << "clipWithPlane: mesh already inside the halfspace (max signed "
+                << "distance " << max_signed_distance << " <= " << on_plane_tol
+                << "), nothing to clip." << std::endl;
+    return 0;
+  }
 
   const int faces_before = static_cast<int>(_mesh.number_of_faces());
 
