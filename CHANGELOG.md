@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.0.0](https://github.com/Loop3D/loop-cgal/compare/v0.1.8...v1.0.0) (2026-09-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* operations that previously returned 0 on invalid/empty input or logged-and-continued on failure now raise ValueError/RuntimeError.
+
+### Features
+
+* preserve edge constraints through cuts, add corefine and implicit-cut snapping ([cd3bd4d](https://github.com/Loop3D/loop-cgal/commit/cd3bd4d90e467b156cf249ad492e7b5d31d5939e))
+* raise on genuine failure instead of returning 0 / crashing ([5d2eea3](https://github.com/Loop3D/loop-cgal/commit/5d2eea3416935c3423a833bdd277034e6b63f2de))
+* snap implicit cuts to existing vertices, add does_self_intersect ([5ed79bf](https://github.com/Loop3D/loop-cgal/commit/5ed79bfd9e5f7242b5170b1eceaa4280ab723ffa))
+
+
+### Bug Fixes
+
+* compact mesh before cut_with_implicit_function to avoid OOB ([3378aa9](https://github.com/Loop3D/loop-cgal/commit/3378aa9b46332ec0af37e603c333d170a374e4d2))
+* gate cut_with_implicit_function debug prints on verbose ([40cfc82](https://github.com/Loop3D/loop-cgal/commit/40cfc8264d6d67c4815fdcaf62b1528219e3ae6f))
+* make clip_with_plane idempotent and deduplicate the kernel round trip ([6ac4e99](https://github.com/Loop3D/loop-cgal/commit/6ac4e99ea5f5620a918082878325addac535840c))
+* make clip_with_plane idempotent and deduplicate the kernel round trip ([b3acde1](https://github.com/Loop3D/loop-cgal/commit/b3acde18733bdc09742d92804831ae440046ff9e))
+* remove duplicate face-insertion loop in array constructor ([6c9e175](https://github.com/Loop3D/loop-cgal/commit/6c9e17585aa459c715356aee691b571bca62800a))
+* validate stream state and face indices in read_from_file ([221be62](https://github.com/Loop3D/loop-cgal/commit/221be62a1ec1de6d009346bfa29e32de2103e74f))
+
+
+### Documentation
+
+* correct corefine return-value comment and document clip-split limitation ([f5f933d](https://github.com/Loop3D/loop-cgal/commit/f5f933deff1e5b01238adc3030234b62db1edcbe))
+
 ## [0.1.8](https://github.com/Loop3D/loop-cgal/compare/v0.1.7...v0.1.8) (2026-04-14)
 
 
