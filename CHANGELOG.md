@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/Loop3D/loop-cgal/compare/v1.0.1...v1.0.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **ci:** drop the redundant macos-latest wheel job ([680b4d7](https://github.com/Loop3D/loop-cgal/commit/680b4d789c31542abbbb45aceb029da1aedd123d))
+* **ci:** drop the redundant macos-latest wheel job ([a0b689a](https://github.com/Loop3D/loop-cgal/commit/a0b689ae8c891df175ddb7963fae08ccf73f0e58))
+
 ## [1.0.1](https://github.com/Loop3D/loop-cgal/compare/v1.0.0...v1.0.1) (2026-09-28)
 
 
